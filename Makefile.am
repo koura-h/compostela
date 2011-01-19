@@ -1,4 +1,4 @@
-bin_PROGRAMS = comfollow compostela
+bin_PROGRAMS = comfollower compostela
 
 comfollower_SOURCES = comfollower.c
 
