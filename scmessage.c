@@ -1,9 +1,10 @@
 /* $Id$ */
 #include <sys/types.h>
 #include <stdlib.h>
+#include <stddef.h>
 #include <string.h>
 
-#include "common.h"
+#include "scmessage.h"
 
 ////////////////////
 

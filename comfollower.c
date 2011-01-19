@@ -3,6 +3,7 @@
 #include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stddef.h>
 #include <string.h>
 #include <fcntl.h>
 #include <netdb.h>
@@ -76,7 +77,7 @@ sc_aggregator_connection_open(sc_aggregator_connection* conn, const char* addr, 
 int
 sc_aggregator_connection_send_message(sc_aggregator_connection* conn, sc_message* msg)
 {
-    ssize_t cb = 0, n = len;
+    ssize_t cb = 0, n = msg->length + offsetof(sc_message, content);
     const char* p = (const char*)msg;
 
     while (n) {
@@ -143,7 +144,7 @@ int
 sc_follow_context_run(sc_follow_context* cxt, sc_aggregator_connection* conn)
 {
     ssize_t csize = 2048;
-    sc_message* msg = sc_message_new(size);
+    sc_message* msg = sc_message_new(csize);
 
     while (1) {
 	int cb = read(cxt->_fd, &msg->content, csize);
@@ -160,7 +161,7 @@ sc_follow_context_run(sc_follow_context* cxt, sc_aggregator_connection* conn)
         //
     }
 
-    sc_message_destroy(buf);
+    sc_message_destroy(msg);
 }
 
 void

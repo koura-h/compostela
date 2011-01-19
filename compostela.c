@@ -1,13 +1,22 @@
 /* $Id$ */
 #include <sys/epoll.h>
 #include <stdio.h>
+#include <stddef.h>
 #include <netdb.h>
 #include <string.h>
 #include <fcntl.h>
 
+#include "scmessage.h"
+
 enum { MAX_SOCKETS = 10 };
 enum { MAX_EVENTS = 10 };
 
+void
+_dump(sc_message* msg)
+{
+    fwrite(&msg->content, msg->length, 1, stdout);
+    fflush(stdout);
+}
 
 int
 set_non_blocking(int s)
@@ -15,6 +24,23 @@ set_non_blocking(int s)
     int flag = fcntl(s, F_GETFL, 0);
     fcntl(s, F_SETFL, flag | O_NONBLOCK);
     return 0;
+}
+
+int
+do_receive(int c)
+{
+    ssize_t csize = 2048, n;
+    sc_message* buf = sc_message_new(csize);
+    n = recv(c, buf, offsetof(sc_message, content), 0); // haha
+    fprintf(stderr, "n = %d / buf->length = %d\n", n, buf->length);
+
+    n = recv(c, &buf->content, buf->length, 0);
+
+    fprintf(stderr, "n = %d / buf->length = %d\n", n, buf->length);
+
+    _dump(buf);
+
+    sc_message_destroy(buf);
 }
 
 int
@@ -71,10 +97,7 @@ run_main(int* socks, int num_socks)
 
 	    if (!done) {
 		c = events[i].data.fd;
-		n = recv(c, buf, sizeof(buf) - 1, 0);
-		buf[n] = '\0';
-
-		fprintf(stdout, "[%s]\n", buf);
+	        do_receive(c);
 	    }
 	}
     }
