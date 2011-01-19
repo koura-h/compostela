@@ -7,32 +7,36 @@
 #include <fcntl.h>
 #include <netdb.h>
 
+#include "scmessage.h"
+
 
 enum { PORT = 8187 };
 
-typedef struct san_follow_context {
+typedef struct _sc_follow_context {
     char *filename;
+    int channel_code;
     off_t current_position;
     off_t filesize;
     int _fd;
-} san_follow_context;
+} sc_follow_context;
+
 
 ////////////////////
 
-typedef struct san_aggregator_connection {
+typedef struct _sc_aggregator_connection {
     int socket;
-} san_aggregator_connection;
+} sc_aggregator_connection;
 
-san_aggregator_connection*
-san_aggregator_connection_new()
+sc_aggregator_connection*
+sc_aggregator_connection_new()
 {
-    san_aggregator_connection* conn = (san_aggregator_connection*)malloc(sizeof(san_aggregator_connection));
+    sc_aggregator_connection* conn = (sc_aggregator_connection*)malloc(sizeof(sc_aggregator_connection));
 
     return conn;
 }
 
 int
-san_aggregator_connection_open(san_aggregator_connection* conn, const char* addr, int port)
+sc_aggregator_connection_open(sc_aggregator_connection* conn, const char* addr, int port)
 {
     struct addrinfo hints, *ai, *ai0 = NULL;
     int err, s = -1;
@@ -70,26 +74,27 @@ san_aggregator_connection_open(san_aggregator_connection* conn, const char* addr
 }
 
 int
-san_aggregator_connection_send_data(san_aggregator_connection* conn, const char* data, ssize_t len)
+sc_aggregator_connection_send_message(sc_aggregator_connection* conn, sc_message* msg)
 {
-    ssize_t cb = 0; //, n = len;
+    ssize_t cb = 0, n = len;
+    const char* p = (const char*)msg;
 
-    // while (n) {
-        cb = send(conn->socket, data, len, 0);
+    while (n) {
+        cb = send(conn->socket, p, n, 0);
 	if (cb == -1) {
 	    return -1;
 	}
 
 	//
-	// n -= cb;
-	// usleep(1000);
-    // }
+	p += cb;
+	n -= cb;
+    }
 
-    return cb;
+    return 0;
 }
 
 void
-san_aggregator_connection_destroy(san_aggregator_connection* conn)
+sc_aggregator_connection_destroy(sc_aggregator_connection* conn)
 {
     close(conn->socket);
     free(conn);
@@ -97,14 +102,14 @@ san_aggregator_connection_destroy(san_aggregator_connection* conn)
 
 ////////////////////
 
-san_follow_context*
-san_follow_context_new(const char* fname)
+sc_follow_context*
+sc_follow_context_new(const char* fname)
 {
-    san_follow_context* cxt = NULL;
+    sc_follow_context* cxt = NULL;
     
-    cxt = (san_follow_context*)malloc(sizeof(san_follow_context));
+    cxt = (sc_follow_context*)malloc(sizeof(sc_follow_context));
     if (cxt) {
-        memset(cxt, 0, sizeof(san_follow_context));
+        memset(cxt, 0, sizeof(sc_follow_context));
 
         cxt->filename = strdup(fname);
 	if (!cxt->filename) {
@@ -119,7 +124,7 @@ san_follow_context_new(const char* fname)
 }
 
 int
-san_follow_context_open(san_follow_context* cxt)
+sc_follow_context_open(sc_follow_context* cxt)
 {
     struct stat st;
 
@@ -135,39 +140,31 @@ san_follow_context_open(san_follow_context* cxt)
 }
 
 int
-san_follow_context_run(san_follow_context* cxt, san_aggregator_connection* conn)
+sc_follow_context_run(sc_follow_context* cxt, sc_aggregator_connection* conn)
 {
-    char buf[2048], *p = NULL;
-    ssize_t n = 0;
-
-    memset(buf, 0, sizeof(buf));
+    ssize_t csize = 2048;
+    sc_message* msg = sc_message_new(size);
 
     while (1) {
-	ssize_t cb = 0;
-        if (n == 0) {
-	    cb = read(cxt->_fd, buf, sizeof(buf));
-	    if (cb <= 0) {
-                sleep(1);
-		continue;
-	    }
-
-	    p = buf;
-	    n = cb;
+	int cb = read(cxt->_fd, &msg->content, csize);
+	if (cb <= 0) {
+            sleep(1);
+	    continue;
 	}
+	msg->length = cb;
 
-        cb = san_aggregator_connection_send_data(conn, p, n);
-	if (cb == -1) {
-	    // error occurred
+        if (sc_aggregator_connection_send_message(conn, msg) != 0) {
+	    // connection broken
 	    break;
 	}
-	n -= cb;
-	p += cb;
         //
     }
+
+    sc_message_destroy(buf);
 }
 
 void
-san_follow_context_destroy(san_follow_context* cxt)
+sc_follow_context_destroy(sc_follow_context* cxt)
 {
     free(cxt->filename);
     free(cxt);
@@ -176,21 +173,21 @@ san_follow_context_destroy(san_follow_context* cxt)
 int
 main(int argc, char** argv)
 {
-    san_follow_context* cxt = NULL;
-    san_aggregator_connection* conn = NULL;
+    sc_follow_context* cxt = NULL;
+    sc_aggregator_connection* conn = NULL;
 
     const char* fname = (argc > 1 ? argv[1] : "default");
     const char* servhost = (argc > 2 ? argv[2] : "log");
 
-    cxt = san_follow_context_new(fname);
-    san_follow_context_open(cxt);
+    cxt = sc_follow_context_new(fname);
+    sc_follow_context_open(cxt);
 
     printf("cxt = %p\n", cxt);
 
-    conn = san_aggregator_connection_new();
-    san_aggregator_connection_open(conn, servhost, PORT);
+    conn = sc_aggregator_connection_new();
+    sc_aggregator_connection_open(conn, servhost, PORT);
 
     printf("conn = %p\n", conn);
 
-    return san_follow_context_run(cxt, conn);
+    return sc_follow_context_run(cxt, conn);
 }
