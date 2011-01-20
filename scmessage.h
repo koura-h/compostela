@@ -4,12 +4,12 @@
 
 
 typedef struct _sc_message {
-    int16_t command;
-    int16_t channel_code;
-    off_t   position;
+    int16_t code;
+    int16_t channel;
     int32_t length;
     char    content;
 } sc_message;
+
 
 #if defined(__cplusplus)
 extern "C" {

@@ -6,7 +6,10 @@
 #include <string.h>
 #include <fcntl.h>
 
+#include <byteswap.h>
+
 #include "scmessage.h"
+#include "supports.h"
 
 enum { MAX_SOCKETS = 10 };
 enum { MAX_EVENTS = 10 };
@@ -31,14 +34,18 @@ do_receive(int c)
 {
     ssize_t csize = 2048, n;
     sc_message* buf = sc_message_new(csize);
-    n = recv(c, buf, offsetof(sc_message, content), 0); // haha
-    fprintf(stderr, "n = %d / buf->length = %d\n", n, buf->length);
 
-    n = recv(c, &buf->content, buf->length, 0);
+    n = recvall(c, buf, offsetof(sc_message, content), 0);
+    if (n > 0) {
+        buf->length = ntohl(buf->length);
+        fprintf(stderr, "n = %d / buf->length = %d\n", n, buf->length);
+        n = recvall(c, &buf->content, buf->length, 0);
+        // fprintf(stderr, "n = %d / buf->length = %d\n", n, buf->length);
 
-    fprintf(stderr, "n = %d / buf->length = %d\n", n, buf->length);
-
-    _dump(buf);
+        _dump(buf);
+    } else {
+        close(c);
+    }
 
     sc_message_destroy(buf);
 }

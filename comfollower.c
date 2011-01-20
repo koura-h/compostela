@@ -8,7 +8,10 @@
 #include <fcntl.h>
 #include <netdb.h>
 
+#include <byteswap.h>
+
 #include "scmessage.h"
+#include "supports.h"
 
 
 enum { PORT = 8187 };
@@ -26,13 +29,16 @@ typedef struct _sc_follow_context {
 
 typedef struct _sc_aggregator_connection {
     int socket;
+    char *buffer;
 } sc_aggregator_connection;
 
 sc_aggregator_connection*
-sc_aggregator_connection_new()
+sc_aggregator_connection_new(ssize_t bufsize)
 {
     sc_aggregator_connection* conn = (sc_aggregator_connection*)malloc(sizeof(sc_aggregator_connection));
-
+    if (conn) {
+        conn->buffer = malloc(bufsize);
+    }
     return conn;
 }
 
@@ -75,20 +81,35 @@ sc_aggregator_connection_open(sc_aggregator_connection* conn, const char* addr, 
 }
 
 int
+sc_aggregator_connection_close(sc_aggregator_connection* conn)
+{
+    close(conn->socket);
+    conn->socket = -1;
+    return 0;
+}
+
+int
 sc_aggregator_connection_send_message(sc_aggregator_connection* conn, sc_message* msg)
 {
-    ssize_t cb = 0, n = msg->length + offsetof(sc_message, content);
-    const char* p = (const char*)msg;
+    int32_t len = msg->length;
 
-    while (n) {
-        cb = send(conn->socket, p, n, 0);
-	if (cb == -1) {
-	    return -1;
-	}
+    fprintf(stderr, "buf->length = %lx\n", msg->length);
+    msg->length = htonl(msg->length);
+    if (sendall(conn->socket, msg, len + offsetof(sc_message, content), 0) < 0) {
+        return -1;
+    }
 
-	//
-	p += cb;
-	n -= cb;
+    return 0;
+}
+
+int
+sc_aggregator_connection_receive_message(sc_aggregator_connection* conn)
+{
+    char buf[offsetof(sc_message, content)];
+    sc_message* m = (sc_message*)buf;
+
+    if (recvall(conn->socket, buf, sizeof(buf), 0) != 0) {
+        return -1;
     }
 
     return 0;
@@ -97,7 +118,9 @@ sc_aggregator_connection_send_message(sc_aggregator_connection* conn, sc_message
 void
 sc_aggregator_connection_destroy(sc_aggregator_connection* conn)
 {
-    close(conn->socket);
+    sc_aggregator_connection_close(conn);
+
+    free(conn->buffer);
     free(conn);
 }
 
@@ -107,7 +130,7 @@ sc_follow_context*
 sc_follow_context_new(const char* fname)
 {
     sc_follow_context* cxt = NULL;
-    
+
     cxt = (sc_follow_context*)malloc(sizeof(sc_follow_context));
     if (cxt) {
         memset(cxt, 0, sizeof(sc_follow_context));
@@ -147,15 +170,16 @@ sc_follow_context_run(sc_follow_context* cxt, sc_aggregator_connection* conn)
     sc_message* msg = sc_message_new(csize);
 
     while (1) {
-	int cb = read(cxt->_fd, &msg->content, csize);
+	int32_t cb = read(cxt->_fd, &msg->content, csize);
 	if (cb <= 0) {
             sleep(1);
 	    continue;
 	}
-	msg->length = cb;
 
+	msg->length = cb;
         if (sc_aggregator_connection_send_message(conn, msg) != 0) {
 	    // connection broken
+	    fprintf(stderr, "connection has broken.\n");
 	    break;
 	}
         //
@@ -183,12 +207,12 @@ main(int argc, char** argv)
     cxt = sc_follow_context_new(fname);
     sc_follow_context_open(cxt);
 
-    printf("cxt = %p\n", cxt);
+    fprintf(stderr, "cxt = %p\n", cxt);
 
-    conn = sc_aggregator_connection_new();
+    conn = sc_aggregator_connection_new(2048);
     sc_aggregator_connection_open(conn, servhost, PORT);
 
-    printf("conn = %p\n", conn);
+    fprintf(stderr, "conn = %p\n", conn);
 
     return sc_follow_context_run(cxt, conn);
 }
