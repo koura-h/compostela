@@ -1,20 +1,57 @@
 /* $Id$ */
 #include <sys/epoll.h>
+#include <dirent.h>
 #include <stdio.h>
 #include <stddef.h>
 #include <netdb.h>
 #include <string.h>
 #include <fcntl.h>
+#include <stdlib.h>
 
 #include <byteswap.h>
 
 #include "scmessage.h"
 #include "supports.h"
 
+enum { PORT = 8187 };
+
 enum { MAX_SOCKETS = 10 };
 enum { MAX_EVENTS = 10 };
 
 enum { BUFSIZE = 2048 };
+
+
+////////////////////////////////////////
+
+typedef struct _sc_channel {
+    char *filename;
+    char *remote_host;
+} sc_channel;
+
+sc_channel*
+sc_channel_new(const char* fname, const char* addr)
+{
+    sc_channel* channel = (sc_channel*)malloc(sizeof(sc_channel));
+    if (channel) {
+        if (fname) {
+	    channel->filename = strdup(fname);
+	}
+	if (addr) {
+	    channel->remote_host = strdup(addr);
+	}
+    }
+    return channel;
+}
+
+void
+sc_channel_destroy(sc_channel* channel)
+{
+    free(channel->filename);
+    free(channel->remote_host);
+    free(channel);
+}
+
+////////////////////////////////////////
 
 void
 _dump(sc_message* msg)
@@ -32,7 +69,7 @@ set_non_blocking(int s)
 }
 
 int
-do_init(int c)
+do_init(int c, sc_channel *ch)
 {
     ssize_t n = 0;
     sc_message* buf = sc_message_new(BUFSIZE);
@@ -43,6 +80,10 @@ do_init(int c)
         buf->length = ntohl(buf->length);
         n = recvall(c, &buf->content, buf->length, 0);
         // fprintf(stderr, "n = %d / buf->length = %d\n", n, buf->length);
+
+	ch->filename = malloc(buf->length + 1);
+	memcpy(ch->filename, buf->content, buf->length);
+	ch->filename[buf->length] = '\0';
 
         // haha
 	ok->code    = htons(SCM_RESP_OK);
@@ -61,7 +102,43 @@ do_init(int c)
 }
 
 int
-do_receive(int c)
+_existsdir(const char* path)
+{
+    int ret = 0;
+
+    DIR* dir = opendir(path);
+    if (dir) {
+        ret = 1;
+	closedir(dir);
+    }
+
+    return ret;
+}
+
+int
+_do_append_file(const char *data, size_t len, sc_channel* channel)
+{
+    int fd;
+    char path[PATH_MAX];
+
+    if (!_existsdir(channel->remote_host)) {
+        mkdir(channel->remote_host, 0755);
+    }
+
+    snprintf(path, sizeof(path), "%s/%s", channel->remote_host, channel->filename);
+    fprintf(stderr, "appending to path [%s]\n", path);
+
+    fd = open(path, O_APPEND | O_RDWR | O_CREAT);
+    if (fd > 0) {
+        write(fd, data, len);
+        close(fd);
+    }
+
+    return 0;
+}
+
+int
+do_receive(int c, sc_channel* channel)
 {
     ssize_t csize = 2048, n;
     sc_message* buf = sc_message_new(csize);
@@ -70,9 +147,11 @@ do_receive(int c)
     n = recvall(c, buf, offsetof(sc_message, content), 0);
     if (n > 0) {
         buf->length = ntohl(buf->length);
-        fprintf(stderr, "n = %d / buf->length = %d\n", n, buf->length);
+        // fprintf(stderr, "n = %d / buf->length = %d\n", n, buf->length);
         n = recvall(c, &buf->content, buf->length, 0);
         // fprintf(stderr, "n = %d / buf->length = %d\n", n, buf->length);
+
+	_do_append_file(buf->content, buf->length, channel);
 
         // haha
 	ok->code    = htons(SCM_RESP_OK);
@@ -81,7 +160,7 @@ do_receive(int c)
 	memset(ok->content, 0, sizeof(int32_t));
 	// haha
         n = sendall(c, ok, offsetof(sc_message, content) + sizeof(int32_t), 0);
-        _dump(buf);
+        // _dump(buf);
     } else {
         fprintf(stderr, "recvall error.\n");
         close(c);
@@ -99,6 +178,7 @@ run_main(int* socks, int num_socks)
 
     char buf[2048];
     ssize_t n;
+    sc_channel* sc = NULL;
 
     int done = 0;
 
@@ -124,14 +204,30 @@ run_main(int* socks, int num_socks)
 	    done = 0;
 	    for (j = 0; j < num_socks; j++) {
 	        if (events[i].data.fd == socks[j]) {
+		    struct sockaddr_storage ss;
+		    socklen_t sslen = sizeof(ss);
 		    // j = num_socks;
+		    char hbuf[NI_MAXHOST];
+		    int err;
 
-		    c = accept(socks[j], NULL, NULL);
+                    memset(&ss, 0, sizeof(ss));
+		    c = accept(socks[j], (struct sockaddr*)&ss, &sslen);
 		    if (c < 0) {
 		        continue;
 		    }
 
-		    do_init(c);
+		    if ((err = getnameinfo((struct sockaddr*)&ss, sslen, hbuf, sizeof(hbuf), NULL, 0, NI_NUMERICHOST))) {
+		        fprintf(stderr, "gai_strerror = [%s]\n", gai_strerror(err));
+		    }
+		    fprintf(stderr, "accept connection from [%s]\n", hbuf);
+		    if (!sc) {
+		        sc = sc_channel_new(NULL, hbuf);
+		    }
+		    fprintf(stderr, "sc = %p\n", sc);
+		    fprintf(stderr, "sc->filename = %s\n", sc->filename);
+		    fprintf(stderr, "sc->remote_host = %s\n", sc->remote_host);
+
+		    do_init(c, sc);
 
 		    set_non_blocking(c);
 		    ev.events = EPOLLIN | EPOLLET;
@@ -147,7 +243,7 @@ run_main(int* socks, int num_socks)
 
 	    if (!done) {
 		c = events[i].data.fd;
-	        do_receive(c);
+	        do_receive(c, sc);
 	    }
 	}
     }
@@ -160,7 +256,7 @@ main(int argc, char** argv)
     int err;
     int s[MAX_SOCKETS], nsock, i, c;
 
-    char buf[2048];
+    char buf[2048], sport[NI_MAXSERV];
     ssize_t cb, n;
 
     int yes = 1;
@@ -169,7 +265,9 @@ main(int argc, char** argv)
     hints.ai_family = PF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
-    err = getaddrinfo(NULL, "8187", &hints, &res0);
+
+    snprintf(sport, sizeof(sport), "%d", PORT);
+    err = getaddrinfo(NULL, sport, &hints, &res0);
     if (err) {
         return -1;
     }

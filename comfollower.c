@@ -81,7 +81,7 @@ sc_aggregator_connection_open(sc_aggregator_connection* conn, const char* addr, 
 }
 
 int
-sc_follower_context_sync_file(sc_follow_context *cxt, sc_aggregator_connection* conn)
+sc_follow_context_sync_file(sc_follow_context *cxt, sc_aggregator_connection* conn)
 {
     sc_message *msg, *resp;
     size_t n = strlen(cxt->filename);
@@ -273,8 +273,9 @@ main(int argc, char** argv)
 
     conn = sc_aggregator_connection_new(2048);
     sc_aggregator_connection_open(conn, servhost, PORT);
-
     fprintf(stderr, "conn = %p\n", conn);
+
+    sc_follow_context_sync_file(cxt, conn);
 
     return sc_follow_context_run(cxt, conn);
 }
