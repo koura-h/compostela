@@ -14,6 +14,8 @@
 enum { MAX_SOCKETS = 10 };
 enum { MAX_EVENTS = 10 };
 
+enum { BUFSIZE = 2048 };
+
 void
 _dump(sc_message* msg)
 {
@@ -30,10 +32,40 @@ set_non_blocking(int s)
 }
 
 int
+do_init(int c)
+{
+    ssize_t n = 0;
+    sc_message* buf = sc_message_new(BUFSIZE);
+    sc_message* ok = sc_message_new(sizeof(int32_t));
+
+    n = recvall(c, buf, offsetof(sc_message, content), 0);
+    if (n > 0) {
+        buf->length = ntohl(buf->length);
+        n = recvall(c, &buf->content, buf->length, 0);
+        // fprintf(stderr, "n = %d / buf->length = %d\n", n, buf->length);
+
+        // haha
+	ok->code    = htons(SCM_RESP_OK);
+	ok->channel = buf->channel;
+	ok->length  = htonl(sizeof(int32_t));
+	memset(ok->content, 0, sizeof(int32_t));
+	// haha
+        n = sendall(c, ok, offsetof(sc_message, content) + sizeof(int32_t), 0);
+        _dump(buf);
+    } else {
+        close(c);
+    }
+
+    sc_message_destroy(ok);
+    sc_message_destroy(buf);
+}
+
+int
 do_receive(int c)
 {
     ssize_t csize = 2048, n;
     sc_message* buf = sc_message_new(csize);
+    sc_message* ok = sc_message_new(sizeof(int32_t));
 
     n = recvall(c, buf, offsetof(sc_message, content), 0);
     if (n > 0) {
@@ -42,11 +74,20 @@ do_receive(int c)
         n = recvall(c, &buf->content, buf->length, 0);
         // fprintf(stderr, "n = %d / buf->length = %d\n", n, buf->length);
 
+        // haha
+	ok->code    = htons(SCM_RESP_OK);
+	ok->channel = buf->channel;
+	ok->length  = htonl(sizeof(int32_t));
+	memset(ok->content, 0, sizeof(int32_t));
+	// haha
+        n = sendall(c, ok, offsetof(sc_message, content) + sizeof(int32_t), 0);
         _dump(buf);
     } else {
+        fprintf(stderr, "recvall error.\n");
         close(c);
     }
 
+    sc_message_destroy(ok);
     sc_message_destroy(buf);
 }
 
@@ -89,6 +130,8 @@ run_main(int* socks, int num_socks)
 		    if (c < 0) {
 		        continue;
 		    }
+
+		    do_init(c);
 
 		    set_non_blocking(c);
 		    ev.events = EPOLLIN | EPOLLET;

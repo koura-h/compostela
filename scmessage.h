@@ -3,11 +3,18 @@
 #define __COMMON_H__
 
 
+enum {
+    SCM_MSG_INIT = 100,
+    SCM_MSG_DATA = 101,
+    //
+    SCM_RESP_OK = 1001,
+};
+
 typedef struct _sc_message {
     int16_t code;
     int16_t channel;
     int32_t length;
-    char    content;
+    char    content[1];
 } sc_message;
 
 

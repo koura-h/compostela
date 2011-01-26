@@ -18,7 +18,7 @@ enum { PORT = 8187 };
 
 typedef struct _sc_follow_context {
     char *filename;
-    int channel_code;
+    int channel;
     off_t current_position;
     off_t filesize;
     int _fd;
@@ -81,6 +81,40 @@ sc_aggregator_connection_open(sc_aggregator_connection* conn, const char* addr, 
 }
 
 int
+sc_follower_context_sync_file(sc_follow_context *cxt, sc_aggregator_connection* conn)
+{
+    sc_message *msg, *resp;
+    size_t n = strlen(cxt->filename);
+
+    msg = sc_message_new(n);
+    if (!msg) {
+        return -1;
+    }
+
+    msg->code    = htons(SCM_MSG_INIT);
+    msg->channel = htons(0);
+    msg->length  = htonl(n);
+    memcpy(msg->content, cxt->filename, n);
+
+    // send_message
+    if (sc_aggregator_connection_send_message(conn, msg) != 0) {
+        return -1;
+    }
+
+    if (sc_aggregator_connection_receive_message(conn, &resp) != 0) {
+        return -3;
+    }
+
+    if (ntohs(resp->code) != SCM_RESP_OK) {
+        return -4;
+    }
+    cxt->channel = htons(resp->channel);
+
+    return 0;
+}
+
+
+int
 sc_aggregator_connection_close(sc_aggregator_connection* conn)
 {
     close(conn->socket);
@@ -91,10 +125,9 @@ sc_aggregator_connection_close(sc_aggregator_connection* conn)
 int
 sc_aggregator_connection_send_message(sc_aggregator_connection* conn, sc_message* msg)
 {
-    int32_t len = msg->length;
+    int32_t len = ntohl(msg->length);
 
-    fprintf(stderr, "buf->length = %lx\n", msg->length);
-    msg->length = htonl(msg->length);
+    fprintf(stderr, "buf->length = %lx\n", len);
     if (sendall(conn->socket, msg, len + offsetof(sc_message, content), 0) < 0) {
         return -1;
     }
@@ -103,14 +136,29 @@ sc_aggregator_connection_send_message(sc_aggregator_connection* conn, sc_message
 }
 
 int
-sc_aggregator_connection_receive_message(sc_aggregator_connection* conn)
+sc_aggregator_connection_receive_message(sc_aggregator_connection* conn, sc_message** pmsg)
 {
     char buf[offsetof(sc_message, content)];
     sc_message* m = (sc_message*)buf;
+    int32_t len = 0;
 
-    if (recvall(conn->socket, buf, sizeof(buf), 0) != 0) {
+    if (recvall(conn->socket, buf, sizeof(buf), 0) <= 0) {
         return -1;
     }
+
+    len = ntohl(m->length);
+
+    m = sc_message_new(len);
+    if (!m) {
+        return -2;
+    }
+
+    memcpy(m, buf, sizeof(buf));
+    if (recvall(conn->socket, m->content, len, 0) <= 0) {
+        return -3;
+    }
+
+    *pmsg = m;
 
     return 0;
 }
@@ -167,7 +215,8 @@ int
 sc_follow_context_run(sc_follow_context* cxt, sc_aggregator_connection* conn)
 {
     ssize_t csize = 2048;
-    sc_message* msg = sc_message_new(csize);
+    sc_message* msg = sc_message_new(csize), *pmsg = NULL;
+    int ret = 0;
 
     while (1) {
 	int32_t cb = read(cxt->_fd, &msg->content, csize);
@@ -176,12 +225,25 @@ sc_follow_context_run(sc_follow_context* cxt, sc_aggregator_connection* conn)
 	    continue;
 	}
 
-	msg->length = cb;
+	if (cxt->channel == 0) {
+	    // to be registered
+	}
+
+        msg->code    = htons(SCM_MSG_DATA);
+	msg->channel = htons(cxt->channel);
+	msg->length  = htonl(cb);
         if (sc_aggregator_connection_send_message(conn, msg) != 0) {
 	    // connection broken
 	    fprintf(stderr, "connection has broken.\n");
 	    break;
 	}
+
+	if ((ret = sc_aggregator_connection_receive_message(conn, &pmsg)) != 0) {
+	    fprintf(stderr, "connection has broken. (2) = %d\n", ret);
+	    break;
+	}
+
+        sc_message_destroy(pmsg);
         //
     }
 
