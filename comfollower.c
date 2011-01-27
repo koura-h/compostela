@@ -85,6 +85,7 @@ sc_follow_context_sync_file(sc_follow_context *cxt, sc_aggregator_connection* co
 {
     sc_message *msg, *resp;
     size_t n = strlen(cxt->filename);
+    int64_t stlen = 0;
 
     msg = sc_message_new(n);
     if (!msg) {
@@ -106,9 +107,17 @@ sc_follow_context_sync_file(sc_follow_context *cxt, sc_aggregator_connection* co
     }
 
     if (ntohs(resp->code) != SCM_RESP_OK) {
+        fprintf(stderr, "INIT: failed\n");
         return -4;
     }
     cxt->channel = htons(resp->channel);
+    stlen = *(int64_t*)(&resp->content);
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+    stlen = bswap_64(stlen);
+#endif
+    fprintf(stderr, "channel id = %d\n", cxt->channel);
+    fprintf(stderr, "stlen = %d\n", stlen);
+    lseek(cxt->_fd, stlen, SEEK_SET);
 
     return 0;
 }
@@ -198,16 +207,18 @@ sc_follow_context_new(const char* fname)
 int
 sc_follow_context_open(sc_follow_context* cxt)
 {
-    struct stat st;
+    // struct stat st;
 
     cxt->_fd = open(cxt->filename, O_RDONLY);
     if (cxt->_fd <= 0) {
         return -1;
     }
 
+/*
     fstat(cxt->_fd, &st);
     cxt->filesize = st.st_size;
     lseek(cxt->_fd, cxt->current_position, SEEK_SET);
+    */
     return 0;
 }
 
@@ -217,6 +228,8 @@ sc_follow_context_run(sc_follow_context* cxt, sc_aggregator_connection* conn)
     ssize_t csize = 2048;
     sc_message* msg = sc_message_new(csize), *pmsg = NULL;
     int ret = 0;
+
+    fprintf(stderr, "context run\n");
 
     while (1) {
 	int32_t cb = read(cxt->_fd, &msg->content, csize);
@@ -228,6 +241,7 @@ sc_follow_context_run(sc_follow_context* cxt, sc_aggregator_connection* conn)
 	if (cxt->channel == 0) {
 	    // to be registered
 	}
+	fprintf(stderr, "reading file...\n");
 
         msg->code    = htons(SCM_MSG_DATA);
 	msg->channel = htons(cxt->channel);

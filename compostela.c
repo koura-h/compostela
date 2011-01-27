@@ -1,5 +1,6 @@
 /* $Id$ */
 #include <sys/epoll.h>
+#include <sys/stat.h>
 #include <dirent.h>
 #include <stdio.h>
 #include <stddef.h>
@@ -7,6 +8,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <stdlib.h>
+#include <libgen.h>
 
 #include <byteswap.h>
 
@@ -21,24 +23,46 @@ enum { MAX_EVENTS = 10 };
 enum { BUFSIZE = 2048 };
 
 
+int default_mode = 0644;
+
+
 ////////////////////////////////////////
 
 typedef struct _sc_channel {
+    int id;
     char *filename;
-    char *remote_host;
+    //
+    struct _sc_connection* connection;
+    //
+    struct _sc_channel *_next;
 } sc_channel;
 
+////////////////////////////////////////
+
+typedef struct _sc_connection {
+    struct sockaddr* sockaddr;
+    socklen_t salen;
+    //
+    char *remote_addr;
+    //
+    // channel list here
+    struct _sc_channel* channel_list;
+    //
+    int socket;
+} sc_connection;
+
+////////////////////////////////////////
+
 sc_channel*
-sc_channel_new(const char* fname, const char* addr)
+sc_channel_new(const char* fname, sc_connection* conn)
 {
     sc_channel* channel = (sc_channel*)malloc(sizeof(sc_channel));
     if (channel) {
         if (fname) {
 	    channel->filename = strdup(fname);
 	}
-	if (addr) {
-	    channel->remote_host = strdup(addr);
-	}
+	channel->connection = conn;
+	channel->_next = NULL;
     }
     return channel;
 }
@@ -46,10 +70,112 @@ sc_channel_new(const char* fname, const char* addr)
 void
 sc_channel_destroy(sc_channel* channel)
 {
+    fprintf(stderr, "%s(%d) %s\n", __FILE__, __LINE__, __func__);
     free(channel->filename);
-    free(channel->remote_host);
     free(channel);
 }
+
+////////////////////////////////////////
+
+void
+sc_connection_set_remote_addr(sc_connection* conn, struct sockaddr* sa, socklen_t salen);
+
+sc_connection*
+sc_connection_new(struct sockaddr* sa, socklen_t salen, int s)
+{
+    sc_connection *conn = (sc_connection*)malloc(sizeof(sc_connection));
+    if (!conn) {
+        return NULL;
+    }
+
+    conn->sockaddr = (struct sockaddr*)malloc(salen);
+    if (conn->sockaddr) {
+        memcpy(conn->sockaddr, sa, salen);
+        conn->salen = salen;
+	conn->socket = s;
+	conn->channel_list = NULL;
+	conn->remote_addr = NULL;
+
+	sc_connection_set_remote_addr(conn, sa, salen);
+    } else {
+        free(conn);
+	conn = NULL;
+    }
+    return conn;
+}
+
+void
+sc_connection_set_remote_addr(sc_connection* conn, struct sockaddr* sa, socklen_t salen)
+{
+    if (!conn->remote_addr) {
+	int err;
+	char hbuf[NI_MAXHOST];
+	if ((err = getnameinfo(sa, salen, hbuf, sizeof(hbuf), NULL, 0, NI_NUMERICHOST))) {
+	    fprintf(stderr, "gai_strerror = [%s]\n", gai_strerror(err));
+	    return;
+        }
+        fprintf(stderr, "accept connection from [%s]\n", hbuf);
+        conn->remote_addr = strdup(hbuf);
+    }
+}
+
+void
+sc_connection_destroy(sc_connection* conn)
+{
+    sc_channel* c = conn->channel_list, *c0;
+
+    fprintf(stderr, "%s(%d) %s\n", __FILE__, __LINE__, __func__);
+
+    while (c) {
+        c0 = c;
+	c = c->_next;
+        sc_channel_destroy(c0);
+    }
+
+    free(conn->remote_addr);
+    free(conn->sockaddr);
+    free(conn);
+}
+
+int
+sc_connection_register_channel(sc_connection* conn, sc_channel* channel)
+{
+    int id = 0;
+    sc_channel* last = NULL, *ch;
+
+    for (ch = conn->channel_list; ch; ch = ch->_next) {
+        if (channel == ch) {
+	    // error: double registration
+	    return -1;
+	}
+	id = (id < ch->id ? ch->id : id);
+        //
+        last = ch;
+    }
+
+    if (last) {
+        last->_next = channel;
+    } else {
+        conn->channel_list = channel;
+    }
+    channel->_next = NULL;
+    channel->id = id + 1;
+
+    return 0;
+}
+
+sc_channel*
+sc_connection_channel(sc_connection* conn, int id)
+{
+    sc_channel* channel = NULL;
+    for (channel = conn->channel_list; channel; channel = channel->_next) {
+        if (channel->id == id) {
+	    break;
+	}
+    }
+    return channel;
+}
+
 
 ////////////////////////////////////////
 
@@ -69,39 +195,6 @@ set_non_blocking(int s)
 }
 
 int
-do_init(int c, sc_channel *ch)
-{
-    ssize_t n = 0;
-    sc_message* buf = sc_message_new(BUFSIZE);
-    sc_message* ok = sc_message_new(sizeof(int32_t));
-
-    n = recvall(c, buf, offsetof(sc_message, content), 0);
-    if (n > 0) {
-        buf->length = ntohl(buf->length);
-        n = recvall(c, &buf->content, buf->length, 0);
-        // fprintf(stderr, "n = %d / buf->length = %d\n", n, buf->length);
-
-	ch->filename = malloc(buf->length + 1);
-	memcpy(ch->filename, buf->content, buf->length);
-	ch->filename[buf->length] = '\0';
-
-        // haha
-	ok->code    = htons(SCM_RESP_OK);
-	ok->channel = buf->channel;
-	ok->length  = htonl(sizeof(int32_t));
-	memset(ok->content, 0, sizeof(int32_t));
-	// haha
-        n = sendall(c, ok, offsetof(sc_message, content) + sizeof(int32_t), 0);
-        _dump(buf);
-    } else {
-        close(c);
-    }
-
-    sc_message_destroy(ok);
-    sc_message_destroy(buf);
-}
-
-int
 _existsdir(const char* path)
 {
     int ret = 0;
@@ -116,58 +209,172 @@ _existsdir(const char* path)
 }
 
 int
-_do_append_file(const char *data, size_t len, sc_channel* channel)
+_create_dir(const char* fpath, mode_t mode)
+{
+    char *s = strdup(fpath), *p;
+    if (!s) {
+        return -1;
+    }
+
+    p = s;
+    while (p = strchr(p, '/')) {
+        *p = '\0';
+	mkdir(s, mode);
+	*p++ = '/';
+    }
+
+    mkdir(s, mode);
+    free(s);
+    return 0;
+}
+
+
+int
+_do_append_file(const char *data, size_t len, const char* remote_addr, const char* fname)
 {
     int fd;
-    char path[PATH_MAX];
+    char path[PATH_MAX], dir[PATH_MAX];
 
-    if (!_existsdir(channel->remote_host)) {
-        mkdir(channel->remote_host, 0755);
+    snprintf(path, sizeof(path), "%s/%s", remote_addr, fname);
+    strcpy(dir, path);
+    fprintf(stderr, "appending to ... [%s]\n", path);
+
+    _create_dir(dirname(dir), 0777);
+
+    fd = open(path, O_APPEND | O_RDWR | O_CREAT, default_mode);
+    if (fd == -1) {
+        perror("");
+	return -1;
     }
-
-    snprintf(path, sizeof(path), "%s/%s", channel->remote_host, channel->filename);
-    fprintf(stderr, "appending to path [%s]\n", path);
-
-    fd = open(path, O_APPEND | O_RDWR | O_CREAT);
-    if (fd > 0) {
-        write(fd, data, len);
-        close(fd);
-    }
+    write(fd, data, len);
+    close(fd);
 
     return 0;
 }
 
 int
-do_receive(int c, sc_channel* channel)
+_do_stat(const char *remote_addr, const char* fname, struct stat *pst)
+{
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/%s", remote_addr, fname);
+
+    return stat(path, pst);
+}
+
+int
+handler_init(sc_message* msg, sc_connection* conn)
+{
+    int n;
+    struct stat st;
+    int64_t stlen = 0;
+
+    sc_message* ok = sc_message_new(sizeof(int32_t));
+    sc_channel* channel = sc_channel_new(NULL, conn);
+
+    channel->filename = malloc(msg->length + 1);
+    memcpy(channel->filename, msg->content, msg->length);
+    channel->filename[msg->length] = '\0';
+
+    memset(&st, 0, sizeof(st));
+    _do_stat(conn->remote_addr, channel->filename, &st);
+
+    fprintf(stderr, "channel->filename = %s\n", channel->filename);
+    fprintf(stderr, "conn->remote_addr = %s\n", conn->remote_addr);
+
+    sc_connection_register_channel(conn, channel);
+
+    // haha
+    ok->code    = htons(SCM_RESP_OK);
+    ok->channel = htons(channel->id);
+    ok->length  = htonl(sizeof(stlen));
+    stlen = st.st_size;
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+    stlen = bswap_64(stlen);
+#endif
+    memcpy(ok->content, &stlen, sizeof(stlen));
+    // haha
+    n = sendall(conn->socket, ok, offsetof(sc_message, content) + sizeof(stlen), 0);
+
+    return 0;
+}
+
+int
+handler_data(sc_message* msg, sc_connection* conn)
+{
+    int n;
+    sc_channel* channel = sc_connection_channel(conn, msg->channel);
+
+    fprintf(stderr, ">>> handler_data\n");
+
+    sc_message* ok = sc_message_new(sizeof(int32_t));
+    _do_append_file(msg->content, msg->length, conn->remote_addr, channel->filename);
+
+    // haha
+    ok->code    = htons(SCM_RESP_OK);
+    ok->channel = htons(msg->channel);
+    ok->length  = htonl(sizeof(int32_t));
+    memset(ok->content, 0, sizeof(int32_t));
+    // haha
+    n = sendall(conn->socket, ok, offsetof(sc_message, content) + sizeof(int32_t), 0);
+    // _dump(msg);
+    sc_message_destroy(ok);
+
+    return 0;
+}
+
+int
+do_receive(int epfd, sc_connection* conn)
 {
     ssize_t csize = 2048, n;
-    sc_message* buf = sc_message_new(csize);
-    sc_message* ok = sc_message_new(sizeof(int32_t));
+    int16_t code = 0;
+    sc_message* msg = sc_message_new(csize);
 
-    n = recvall(c, buf, offsetof(sc_message, content), 0);
+    int c = conn->socket;
+
+    n = recvall(c, msg, offsetof(sc_message, content), 0);
     if (n > 0) {
-        buf->length = ntohl(buf->length);
-        // fprintf(stderr, "n = %d / buf->length = %d\n", n, buf->length);
-        n = recvall(c, &buf->content, buf->length, 0);
-        // fprintf(stderr, "n = %d / buf->length = %d\n", n, buf->length);
+        msg->code    = ntohs(msg->code);
+	msg->channel = ntohs(msg->channel);
+        msg->length  = ntohl(msg->length);
+        n = recvall(c, &msg->content, msg->length, 0);
 
-	_do_append_file(buf->content, buf->length, channel);
+	code = msg->code;
+	if (msg->channel == 0) {
+	    code = SCM_MSG_INIT;
+	}
 
-        // haha
-	ok->code    = htons(SCM_RESP_OK);
-	ok->channel = buf->channel;
-	ok->length  = htonl(sizeof(int32_t));
-	memset(ok->content, 0, sizeof(int32_t));
-	// haha
-        n = sendall(c, ok, offsetof(sc_message, content) + sizeof(int32_t), 0);
-        // _dump(buf);
+	switch (msg->code) {
+	case SCM_MSG_INIT:
+	    handler_init(msg, conn);
+	    break;
+	case SCM_MSG_DATA:
+	    handler_data(msg, conn);
+	    break;
+	}
+    } else if (n == 0) {
+        struct epoll_event ev;
+
+        fprintf(stderr, "connection closed\n");
+
+	epoll_ctl(epfd, EPOLL_CTL_DEL, c, NULL);
+
+	close(c);
+
+	sc_connection_destroy(conn);
     } else {
+        struct epoll_event ev;
+
         fprintf(stderr, "recvall error.\n");
+
+	epoll_ctl(epfd, EPOLL_CTL_DEL, c, NULL);
+
         close(c);
+
+	sc_connection_destroy(conn);
     }
 
-    sc_message_destroy(ok);
-    sc_message_destroy(buf);
+    sc_message_destroy(msg);
+    return 0;
 }
 
 int
@@ -178,7 +385,7 @@ run_main(int* socks, int num_socks)
 
     char buf[2048];
     ssize_t n;
-    sc_channel* sc = NULL;
+    sc_connection *conn = NULL;
 
     int done = 0;
 
@@ -207,7 +414,6 @@ run_main(int* socks, int num_socks)
 		    struct sockaddr_storage ss;
 		    socklen_t sslen = sizeof(ss);
 		    // j = num_socks;
-		    char hbuf[NI_MAXHOST];
 		    int err;
 
                     memset(&ss, 0, sizeof(ss));
@@ -216,22 +422,11 @@ run_main(int* socks, int num_socks)
 		        continue;
 		    }
 
-		    if ((err = getnameinfo((struct sockaddr*)&ss, sslen, hbuf, sizeof(hbuf), NULL, 0, NI_NUMERICHOST))) {
-		        fprintf(stderr, "gai_strerror = [%s]\n", gai_strerror(err));
-		    }
-		    fprintf(stderr, "accept connection from [%s]\n", hbuf);
-		    if (!sc) {
-		        sc = sc_channel_new(NULL, hbuf);
-		    }
-		    fprintf(stderr, "sc = %p\n", sc);
-		    fprintf(stderr, "sc->filename = %s\n", sc->filename);
-		    fprintf(stderr, "sc->remote_host = %s\n", sc->remote_host);
-
-		    do_init(c, sc);
+		    conn = sc_connection_new((struct sockaddr*)&ss, sslen, c);
 
 		    set_non_blocking(c);
 		    ev.events = EPOLLIN | EPOLLET;
-		    ev.data.fd = c;
+		    ev.data.ptr = conn;
 		    if (epoll_ctl(epfd, EPOLL_CTL_ADD, c, &ev) < 0) {
 		        fprintf(stderr, "epoll set insertion error: fd = %d\n", c);
 			continue;
@@ -242,8 +437,9 @@ run_main(int* socks, int num_socks)
 	    }
 
 	    if (!done) {
-		c = events[i].data.fd;
-	        do_receive(c, sc);
+		// c = events[i].data.fd;
+		sc_connection* conn = events[i].data.ptr;
+	        do_receive(epfd, conn);
 	    }
 	}
     }
