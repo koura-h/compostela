@@ -6,5 +6,8 @@ Makefile.in
 /depcomp
 /install-sh
 /missing
+compostela
+comfollower
 *.o
 a.out
+tmp

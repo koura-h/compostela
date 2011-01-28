@@ -30,20 +30,25 @@ typedef struct _sc_follow_context {
 typedef struct _sc_aggregator_connection {
     int socket;
     char *buffer;
+    //
+    char *host;
+    int port;
 } sc_aggregator_connection;
 
 sc_aggregator_connection*
-sc_aggregator_connection_new(ssize_t bufsize)
+sc_aggregator_connection_new(ssize_t bufsize, const char* host, int port)
 {
     sc_aggregator_connection* conn = (sc_aggregator_connection*)malloc(sizeof(sc_aggregator_connection));
     if (conn) {
         conn->buffer = malloc(bufsize);
+	conn->host = strdup(host);
+	conn->port = port;
     }
     return conn;
 }
 
 int
-sc_aggregator_connection_open(sc_aggregator_connection* conn, const char* addr, int port)
+sc_aggregator_connection_open(sc_aggregator_connection* conn)
 {
     struct addrinfo hints, *ai, *ai0 = NULL;
     int err, s = -1;
@@ -54,9 +59,9 @@ sc_aggregator_connection_open(sc_aggregator_connection* conn, const char* addr, 
     hints.ai_flags = AI_NUMERICSERV;
     hints.ai_socktype = SOCK_STREAM;
 
-    snprintf(sport, sizeof(sport), "%d", port);
+    snprintf(sport, sizeof(sport), "%d", conn->port);
 
-    err = getaddrinfo(addr, sport, &hints, &ai0);
+    err = getaddrinfo(conn->host, sport, &hints, &ai0);
     if (err) {
         fprintf(stderr, "getaddrinfo: %s", gai_strerror(err));
         return -1;
@@ -87,6 +92,8 @@ sc_follow_context_sync_file(sc_follow_context *cxt, sc_aggregator_connection* co
     size_t n = strlen(cxt->filename);
     int64_t stlen = 0;
 
+    fprintf(stderr, ">>> INIT: started\n");
+
     msg = sc_message_new(n);
     if (!msg) {
         return -1;
@@ -107,7 +114,7 @@ sc_follow_context_sync_file(sc_follow_context *cxt, sc_aggregator_connection* co
     }
 
     if (ntohs(resp->code) != SCM_RESP_OK) {
-        fprintf(stderr, "INIT: failed\n");
+        fprintf(stderr, ">>> INIT: failed\n");
         return -4;
     }
     cxt->channel = htons(resp->channel);
@@ -119,6 +126,7 @@ sc_follow_context_sync_file(sc_follow_context *cxt, sc_aggregator_connection* co
     fprintf(stderr, "stlen = %d\n", stlen);
     lseek(cxt->_fd, stlen, SEEK_SET);
 
+    fprintf(stderr, ">>> INIT: finished\n");
     return 0;
 }
 
@@ -134,10 +142,12 @@ sc_aggregator_connection_close(sc_aggregator_connection* conn)
 int
 sc_aggregator_connection_send_message(sc_aggregator_connection* conn, sc_message* msg)
 {
+    int ret = 0;
     int32_t len = ntohl(msg->length);
 
     fprintf(stderr, "buf->length = %lx\n", len);
-    if (sendall(conn->socket, msg, len + offsetof(sc_message, content), 0) < 0) {
+    if ((ret = sendall(conn->socket, msg, len + offsetof(sc_message, content), 0)) <= 0) {
+        fprintf(stderr, "sending error\n");
         return -1;
     }
 
@@ -177,6 +187,7 @@ sc_aggregator_connection_destroy(sc_aggregator_connection* conn)
 {
     sc_aggregator_connection_close(conn);
 
+    free(conn->host);
     free(conn->buffer);
     free(conn);
 }
@@ -223,10 +234,32 @@ sc_follow_context_open(sc_follow_context* cxt)
 }
 
 int
+_sc_follow_context_proc_data(sc_follow_context* cxt, sc_aggregator_connection* conn, sc_message* msg, sc_message** ppresp)
+{
+    int ret;
+    *ppresp = NULL;
+
+    if ((ret = sc_aggregator_connection_send_message(conn, msg)) != 0) {
+	// connection broken
+	fprintf(stderr, "connection has broken.\n");
+	return ret;
+    }
+
+    if ((ret = sc_aggregator_connection_receive_message(conn, ppresp)) != 0) {
+	fprintf(stderr, "connection has broken. (2) = %d\n", ret);
+
+	// reconnect
+	return ret;
+    }
+
+    return ret;
+}
+
+int
 sc_follow_context_run(sc_follow_context* cxt, sc_aggregator_connection* conn)
 {
     ssize_t csize = 2048;
-    sc_message* msg = sc_message_new(csize), *pmsg = NULL;
+    sc_message* msg = sc_message_new(csize), *resp = NULL;
     int ret = 0;
 
     fprintf(stderr, "context run\n");
@@ -246,21 +279,17 @@ sc_follow_context_run(sc_follow_context* cxt, sc_aggregator_connection* conn)
         msg->code    = htons(SCM_MSG_DATA);
 	msg->channel = htons(cxt->channel);
 	msg->length  = htonl(cb);
-        if (sc_aggregator_connection_send_message(conn, msg) != 0) {
-	    // connection broken
-	    fprintf(stderr, "connection has broken.\n");
-	    break;
+
+	if (_sc_follow_context_proc_data(cxt, conn, msg, &resp) != 0) {
+	    // reconnect
+	    fprintf(stderr, "reconnect now\n");
+	    sc_aggregator_connection_open(conn);
+            sc_follow_context_sync_file(cxt, conn);
 	}
 
-	if ((ret = sc_aggregator_connection_receive_message(conn, &pmsg)) != 0) {
-	    fprintf(stderr, "connection has broken. (2) = %d\n", ret);
-	    break;
-	}
-
-        sc_message_destroy(pmsg);
-        //
+	// here, we proceed response from aggregator
+	sc_message_destroy(resp);
     }
-
     sc_message_destroy(msg);
 }
 
@@ -285,8 +314,8 @@ main(int argc, char** argv)
 
     fprintf(stderr, "cxt = %p\n", cxt);
 
-    conn = sc_aggregator_connection_new(2048);
-    sc_aggregator_connection_open(conn, servhost, PORT);
+    conn = sc_aggregator_connection_new(2048, servhost, PORT);
+    sc_aggregator_connection_open(conn);
     fprintf(stderr, "conn = %p\n", conn);
 
     sc_follow_context_sync_file(cxt, conn);

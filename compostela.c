@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <libgen.h>
+#include <assert.h>
 
 #include <byteswap.h>
 
@@ -182,8 +183,10 @@ sc_connection_channel(sc_connection* conn, int id)
 void
 _dump(sc_message* msg)
 {
-    fwrite(&msg->content, msg->length, 1, stdout);
-    fflush(stdout);
+    fprintf(stderr, ">>>DATA\n");
+    fwrite(&msg->content, msg->length, 1, stderr);
+    // fflush(stderr);
+    fprintf(stderr, "<<<DATA\n");
 }
 
 int
@@ -299,10 +302,9 @@ handler_init(sc_message* msg, sc_connection* conn)
 }
 
 int
-handler_data(sc_message* msg, sc_connection* conn)
+handler_data(sc_message* msg, sc_connection* conn, sc_channel* channel)
 {
     int n;
-    sc_channel* channel = sc_connection_channel(conn, msg->channel);
 
     fprintf(stderr, ">>> handler_data\n");
 
@@ -316,7 +318,7 @@ handler_data(sc_message* msg, sc_connection* conn)
     memset(ok->content, 0, sizeof(int32_t));
     // haha
     n = sendall(conn->socket, ok, offsetof(sc_message, content) + sizeof(int32_t), 0);
-    // _dump(msg);
+    _dump(msg);
     sc_message_destroy(ok);
 
     return 0;
@@ -328,6 +330,7 @@ do_receive(int epfd, sc_connection* conn)
     ssize_t csize = 2048, n;
     int16_t code = 0;
     sc_message* msg = sc_message_new(csize);
+    sc_channel* channel = NULL;
 
     int c = conn->socket;
 
@@ -343,12 +346,19 @@ do_receive(int epfd, sc_connection* conn)
 	    code = SCM_MSG_INIT;
 	}
 
+        channel = sc_connection_channel(conn, msg->channel);
+	if (!channel) {
+	    fprintf(stderr, "I might be happened to restart?\n");
+	    assert(code == SCM_MSG_INIT);
+	    // code = SCM_MSG_INIT;
+	}
+
 	switch (msg->code) {
 	case SCM_MSG_INIT:
 	    handler_init(msg, conn);
 	    break;
 	case SCM_MSG_DATA:
-	    handler_data(msg, conn);
+	    handler_data(msg, conn, channel);
 	    break;
 	}
     } else if (n == 0) {

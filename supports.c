@@ -9,13 +9,13 @@
 int
 sendall(int s, const void* data, ssize_t len, int opt)
 {
-    const char* p = (const char*)data;
+    const char *p0 = data, *p;
     ssize_t cb = 0, n = len;
 
-    while (n) {
+    for (p = p0; n; ) {
         cb = send(s, p, n, opt);
-        if (cb == -1) {
-            return -1;
+        if (cb <= 0) {
+            break;
         }
 
         //
@@ -23,7 +23,7 @@ sendall(int s, const void* data, ssize_t len, int opt)
         n -= cb;
     }
 
-    return len;
+    return (p - p0 ? p - p0 : cb);
 }
 
 int
