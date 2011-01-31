@@ -91,6 +91,7 @@ sc_follow_context_sync_file(sc_follow_context *cxt, sc_aggregator_connection* co
     sc_message *msg, *resp;
     size_t n = strlen(cxt->filename);
     int64_t stlen = 0;
+    int32_t len = 0;
 
     fprintf(stderr, ">>> INIT: started\n");
 
@@ -118,10 +119,30 @@ sc_follow_context_sync_file(sc_follow_context *cxt, sc_aggregator_connection* co
         return -4;
     }
     cxt->channel = htons(resp->channel);
+    len = htonl(resp->length);
     stlen = *(int64_t*)(&resp->content);
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     stlen = bswap_64(stlen);
 #endif
+    fprintf(stderr, ">>> INIT: len = %d\n", len);
+    if (len > sizeof(int64_t)) {
+        unsigned char* buf, *p;
+	size_t bufsize, psize;
+
+	p = resp->content + sizeof(int64_t);
+	psize = len - sizeof(int64_t);
+
+	mhash_with_size(cxt->filename, stlen, &buf, &bufsize);
+	if (buf) {
+	    if (psize != bufsize || memcmp(p, buf, bufsize) != 0) {
+	        fprintf(stderr, "mhash invalid!!!\n");
+		exit(-1);
+	    } else {
+	        fprintf(stderr, "mhash check: OK\n");
+	    }
+	    free(buf);
+	}
+    }
     fprintf(stderr, "channel id = %d\n", cxt->channel);
     fprintf(stderr, "stlen = %d\n", stlen);
     lseek(cxt->_fd, stlen, SEEK_SET);

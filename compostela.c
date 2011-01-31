@@ -130,6 +130,7 @@ sc_connection_destroy(sc_connection* conn)
     while (c) {
         c0 = c;
 	c = c->_next;
+	fprintf(stderr, "c0 = %p, c = %p\n", c0, c);
         sc_channel_destroy(c0);
     }
 
@@ -255,49 +256,80 @@ _do_append_file(const char *data, size_t len, const char* remote_addr, const cha
     return 0;
 }
 
+char*
+__mk_path(const char* remote_addr, const char* fname, char *buf, size_t bufsize)
+{
+    snprintf(buf, bufsize, "%s/%s", remote_addr, fname);
+    return buf;
+}
+
+/*
 int
 _do_stat(const char *remote_addr, const char* fname, struct stat *pst)
 {
     char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/%s", remote_addr, fname);
+    __mk_path(remote_addr, fname, path, sizeof(path));
 
     return stat(path, pst);
 }
 
 int
+_do_md5(const char* remote_addr, const char* fname, off_t fsize, unsigned char* md5buf)
+{
+    char path[PATH_MAX];
+    __mk_path(remote_addr, fname, path, sizeof(path));
+
+    return __md5_with_size(path, fsize, md5buf);
+}
+*/
+
+int
 handler_init(sc_message* msg, sc_connection* conn)
 {
     int n;
-    struct stat st;
     int64_t stlen = 0;
 
-    sc_message* ok = sc_message_new(sizeof(int32_t));
+    char path[PATH_MAX];
+    unsigned char *mhash;
+    size_t mhash_size;
+    struct stat st;
+
+    sc_message* ok = NULL;
     sc_channel* channel = sc_channel_new(NULL, conn);
 
     channel->filename = malloc(msg->length + 1);
     memcpy(channel->filename, msg->content, msg->length);
     channel->filename[msg->length] = '\0';
 
+    __mk_path(conn->remote_addr, channel->filename, path, sizeof(path));
+
     memset(&st, 0, sizeof(st));
-    _do_stat(conn->remote_addr, channel->filename, &st);
+    stat(path, &st);
+    mhash_with_size(path, st.st_size, &mhash, &mhash_size);
 
     fprintf(stderr, "channel->filename = %s\n", channel->filename);
     fprintf(stderr, "conn->remote_addr = %s\n", conn->remote_addr);
 
     sc_connection_register_channel(conn, channel);
 
+    ok = sc_message_new(sizeof(int32_t) + mhash_size);
     // haha
     ok->code    = htons(SCM_RESP_OK);
     ok->channel = htons(channel->id);
-    ok->length  = htonl(sizeof(stlen));
+    ok->length  = htonl(sizeof(stlen) + mhash_size);
     stlen = st.st_size;
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     stlen = bswap_64(stlen);
 #endif
     memcpy(ok->content, &stlen, sizeof(stlen));
+    if (mhash) {
+        memcpy(ok->content + sizeof(stlen), mhash, mhash_size);
+	dump_mhash(mhash, mhash_size);
+    }
     // haha
-    n = sendall(conn->socket, ok, offsetof(sc_message, content) + sizeof(stlen), 0);
+    n = sendall(conn->socket, ok, offsetof(sc_message, content) + sizeof(stlen) + mhash_size, 0);
 
+    free(mhash);
     return 0;
 }
 
