@@ -3,6 +3,7 @@
 #include <sys/socket.h>
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
 
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -40,6 +41,10 @@ recvall(int s, void* buf, ssize_t size, int opt)
 
     for (p = p0; n; ) {
         cb = recv(s, p, n, opt);
+	if (cb == -1 && errno == EAGAIN) {
+	    usleep(100000);
+	    continue;
+	}
         if (cb <= 0) {
             break;
         }
@@ -75,6 +80,9 @@ mhash_with_size(const char* fpath, off_t fsize, unsigned char** mhash, size_t* m
 
         d = (na < sizeof(buf) ? na : sizeof(buf));
         n = read(fd, buf, d);
+        if (n <= 0) {
+            break;
+        }
 
         MD5_Update(&ctx, buf, n);
         na -= n;

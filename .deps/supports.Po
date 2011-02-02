@@ -22,10 +22,13 @@ supports.o: supports.c /usr/include/sys/types.h /usr/include/features.h \
   /usr/include/bits/stdio_lim.h /usr/include/bits/sys_errlist.h \
   /usr/include/bits/stdio.h /usr/include/string.h \
   /usr/include/bits/string.h /usr/include/bits/string2.h \
-  /usr/include/stdlib.h /usr/include/sys/stat.h /usr/include/bits/stat.h \
-  /usr/include/fcntl.h /usr/include/bits/fcntl.h \
-  /usr/include/openssl/md5.h /usr/include/openssl/e_os2.h \
-  /usr/include/openssl/opensslconf.h supports.h
+  /usr/include/stdlib.h /usr/include/errno.h /usr/include/bits/errno.h \
+  /usr/include/linux/errno.h /usr/include/asm/errno.h \
+  /usr/include/asm-generic/errno.h /usr/include/asm-generic/errno-base.h \
+  /usr/include/sys/stat.h /usr/include/bits/stat.h /usr/include/fcntl.h \
+  /usr/include/bits/fcntl.h /usr/include/openssl/md5.h \
+  /usr/include/openssl/e_os2.h /usr/include/openssl/opensslconf.h \
+  supports.h
 
 /usr/include/sys/types.h:
 
@@ -114,6 +117,18 @@ supports.o: supports.c /usr/include/sys/types.h /usr/include/features.h \
 /usr/include/bits/string2.h:
 
 /usr/include/stdlib.h:
+
+/usr/include/errno.h:
+
+/usr/include/bits/errno.h:
+
+/usr/include/linux/errno.h:
+
+/usr/include/asm/errno.h:
+
+/usr/include/asm-generic/errno.h:
+
+/usr/include/asm-generic/errno-base.h:
 
 /usr/include/sys/stat.h:
 

@@ -141,6 +141,8 @@ sc_follow_context_sync_file(sc_follow_context *cxt, sc_aggregator_connection* co
 	        fprintf(stderr, "mhash check: OK\n");
 	    }
 	    free(buf);
+	} else {
+	    fprintf(stderr, "mhash not found\n");
 	}
     }
     fprintf(stderr, "channel id = %d\n", cxt->channel);
@@ -166,8 +168,9 @@ sc_aggregator_connection_send_message(sc_aggregator_connection* conn, sc_message
     int ret = 0;
     int32_t len = ntohl(msg->length);
 
-    fprintf(stderr, "buf->length = %lx\n", len);
+    fprintf(stderr, "code = %d, channel = %d, length = %lx\n", ntohs(msg->code), ntohs(msg->channel), len);
     if ((ret = sendall(conn->socket, msg, len + offsetof(sc_message, content), 0)) <= 0) {
+        perror("sendall");
         fprintf(stderr, "sending error\n");
         return -1;
     }
@@ -181,9 +184,15 @@ sc_aggregator_connection_receive_message(sc_aggregator_connection* conn, sc_mess
     char buf[offsetof(sc_message, content)];
     sc_message* m = (sc_message*)buf;
     int32_t len = 0;
+    int n;
 
-    if (recvall(conn->socket, buf, sizeof(buf), 0) <= 0) {
+    n = recvall(conn->socket, buf, sizeof(buf), 0);
+    if (n < 0) {
+        perror("recvall");
         return -1;
+    } else if (n == 0) {
+        fprintf(stderr, "closed\n");
+	return -4;
     }
 
     len = ntohl(m->length);
@@ -321,25 +330,61 @@ sc_follow_context_destroy(sc_follow_context* cxt)
     free(cxt);
 }
 
+
+/*
+int
+_add_file(int epfd, int fd)
+{
+    // epfd = epoll_create(MAX_EVENTS);
+    struct epoll_event ev;
+    int flags;
+
+    memset(&ev, 0, sizeof(ev));
+    ev.events = EPOLLIN | EPOLLET;
+    ev.data.fd = fd;
+
+    flags = fcntl(fd. F_GETFL);
+    fcntl(fd, F_SETFL, O_NONBLOCK);
+
+    return epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev);
+}
+*/
+
 int
 main(int argc, char** argv)
 {
-    sc_follow_context* cxt = NULL;
-    sc_aggregator_connection* conn = NULL;
+    int epfd;
 
-    const char* fname = (argc > 1 ? argv[1] : "default");
-    const char* servhost = (argc > 2 ? argv[2] : "log");
+    sc_follow_context *cxt0 = NULL, *cxt1 = NULL;
+    sc_aggregator_connection *conn = NULL;
 
-    cxt = sc_follow_context_new(fname);
-    sc_follow_context_open(cxt);
+    const char* servhost = (argc > 1 ? argv[1] : "log");
+    const char* fname0   = (argc > 2 ? argv[2] : "_default_");
+    // const char* fname1   = (argc > 3 ? argv[3] : "_default_");
 
-    fprintf(stderr, "cxt = %p\n", cxt);
+/*
+    if ((epfd = epoll_create(MAX_EVENTS)) < 0) {
+        perror("epoll_create");
+        return -1;
+    }
+    */
 
     conn = sc_aggregator_connection_new(2048, servhost, PORT);
     sc_aggregator_connection_open(conn);
     fprintf(stderr, "conn = %p\n", conn);
 
-    sc_follow_context_sync_file(cxt, conn);
+    cxt0 = sc_follow_context_new(fname0);
+    sc_follow_context_open(cxt0);
+    fprintf(stderr, "cxt0 = %p\n", cxt0);
 
-    return sc_follow_context_run(cxt, conn);
+    // cxt1 = sc_follow_context_new(fname1);
+    // sc_follow_context_open(cxt1);
+    // fprintf(stderr, "cxt1 = %p\n", cxt1);
+
+    sc_follow_context_sync_file(cxt0, conn);
+    // sc_follow_context_sync_file(cxt1, conn);
+
+    // _add_file(epfd, cxt0->fd);
+
+    return sc_follow_context_run(cxt0, conn);
 }

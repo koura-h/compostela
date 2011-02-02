@@ -6,6 +6,7 @@
 enum {
     SCM_MSG_INIT = 100,
     SCM_MSG_DATA = 101,
+    SCM_MSG_POS  = 102,
     //
     SCM_RESP_OK = 1001,
 };
@@ -17,6 +18,13 @@ typedef struct _sc_message {
     char    content[1];
 } sc_message;
 
+
+typedef struct _scm_response_init {
+} scm_response_init;
+
+typedef struct _scm_command_pos {
+    int64_t filesize;
+} scm_command_pos;
 
 #if defined(__cplusplus)
 extern "C" {

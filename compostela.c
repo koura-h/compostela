@@ -234,12 +234,12 @@ _create_dir(const char* fpath, mode_t mode)
 
 
 int
-_do_append_file(const char *data, size_t len, const char* remote_addr, const char* fname)
+_do_append_file(const char* path, const char *data, size_t len)
 {
     int fd;
-    char path[PATH_MAX], dir[PATH_MAX];
+    // char path[PATH_MAX], dir[PATH_MAX];
+    char dir[PATH_MAX];
 
-    snprintf(path, sizeof(path), "%s/%s", remote_addr, fname);
     strcpy(dir, path);
     fprintf(stderr, "appending to ... [%s]\n", path);
 
@@ -251,6 +251,20 @@ _do_append_file(const char *data, size_t len, const char* remote_addr, const cha
 	return -1;
     }
     write(fd, data, len);
+    close(fd);
+
+    return 0;
+}
+
+int
+_do_trunc_file(const char* path, off_t pos)
+{
+    int fd = open(path, O_RDWR);
+    if (fd == -1) {
+        return -1;
+    }
+
+    lseek(fd, pos, SEEK_SET);
     close(fd);
 
     return 0;
@@ -337,11 +351,15 @@ int
 handler_data(sc_message* msg, sc_connection* conn, sc_channel* channel)
 {
     int n;
+    char path[PATH_MAX];
 
     fprintf(stderr, ">>> handler_data\n");
 
+    __mk_path(conn->remote_addr, channel->filename, path, sizeof(path));
+
     sc_message* ok = sc_message_new(sizeof(int32_t));
-    _do_append_file(msg->content, msg->length, conn->remote_addr, channel->filename);
+    fprintf(stderr, "channel_id = %d\n", msg->channel);
+    _do_append_file(path, msg->content, msg->length);
 
     // haha
     ok->code    = htons(SCM_RESP_OK);
@@ -350,7 +368,38 @@ handler_data(sc_message* msg, sc_connection* conn, sc_channel* channel)
     memset(ok->content, 0, sizeof(int32_t));
     // haha
     n = sendall(conn->socket, ok, offsetof(sc_message, content) + sizeof(int32_t), 0);
-    _dump(msg);
+    // _dump(msg);
+    sc_message_destroy(ok);
+
+    return 0;
+}
+
+int
+handler_pos(sc_message* msg, sc_connection* conn, sc_channel* channel)
+{
+    int n;
+    char path[PATH_MAX];
+    int64_t pos;
+
+    fprintf(stderr, ">>> handler_pos\n");
+
+    __mk_path(conn->remote_addr, channel->filename, path, sizeof(path));
+
+    pos = *(int64_t*)msg->content;
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+    pos = bswap_64(pos);
+#endif
+
+    sc_message* ok = sc_message_new(sizeof(int32_t));
+    _do_trunc_file(path, pos);
+
+    // haha
+    ok->code    = htons(SCM_RESP_OK);
+    ok->channel = htons(msg->channel);
+    ok->length  = htonl(sizeof(int32_t));
+    memset(ok->content, 0, sizeof(int32_t));
+    // haha
+    n = sendall(conn->socket, ok, offsetof(sc_message, content) + sizeof(int32_t), 0);
     sc_message_destroy(ok);
 
     return 0;
@@ -371,16 +420,18 @@ do_receive(int epfd, sc_connection* conn)
         msg->code    = ntohs(msg->code);
 	msg->channel = ntohs(msg->channel);
         msg->length  = ntohl(msg->length);
+	fprintf(stderr, "n = %d, code = %d, channel = %d, length = %d\n", n, msg->code, msg->channel, msg->length);
         n = recvall(c, &msg->content, msg->length, 0);
 
 	code = msg->code;
 	if (msg->channel == 0) {
 	    code = SCM_MSG_INIT;
 	}
+	fprintf(stderr, "n = %d\n", n, msg->code, msg->channel, msg->length);
 
         channel = sc_connection_channel(conn, msg->channel);
 	if (!channel) {
-	    fprintf(stderr, "I might be happened to restart?\n");
+	    fprintf(stderr, "conn=%p, I might be happened to restart?\n", conn);
 	    assert(code == SCM_MSG_INIT);
 	    // code = SCM_MSG_INIT;
 	}
@@ -388,6 +439,9 @@ do_receive(int epfd, sc_connection* conn)
 	switch (msg->code) {
 	case SCM_MSG_INIT:
 	    handler_init(msg, conn);
+	    break;
+	case SCM_MSG_POS:
+	    handler_pos(msg, conn, channel);
 	    break;
 	case SCM_MSG_DATA:
 	    handler_data(msg, conn, channel);
