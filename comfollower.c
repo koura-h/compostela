@@ -22,6 +22,8 @@ typedef struct _sc_follow_context {
     off_t current_position;
     off_t filesize;
     int _fd;
+    //
+    struct _sc_aggregator_connection *connection;
 } sc_follow_context;
 
 
@@ -86,7 +88,7 @@ sc_aggregator_connection_open(sc_aggregator_connection* conn)
 }
 
 int
-sc_follow_context_sync_file(sc_follow_context *cxt, sc_aggregator_connection* conn)
+sc_follow_context_sync_file(sc_follow_context *cxt)
 {
     sc_message *msg, *resp;
     size_t n = strlen(cxt->filename);
@@ -106,11 +108,11 @@ sc_follow_context_sync_file(sc_follow_context *cxt, sc_aggregator_connection* co
     memcpy(msg->content, cxt->filename, n);
 
     // send_message
-    if (sc_aggregator_connection_send_message(conn, msg) != 0) {
+    if (sc_aggregator_connection_send_message(cxt->connection, msg) != 0) {
         return -1;
     }
 
-    if (sc_aggregator_connection_receive_message(conn, &resp) != 0) {
+    if (sc_aggregator_connection_receive_message(cxt->connection, &resp) != 0) {
         return -3;
     }
 
@@ -225,7 +227,7 @@ sc_aggregator_connection_destroy(sc_aggregator_connection* conn)
 ////////////////////
 
 sc_follow_context*
-sc_follow_context_new(const char* fname)
+sc_follow_context_new(const char* fname, sc_aggregator_connection* conn)
 {
     sc_follow_context* cxt = NULL;
 
@@ -233,12 +235,12 @@ sc_follow_context_new(const char* fname)
     if (cxt) {
         memset(cxt, 0, sizeof(sc_follow_context));
 
+	cxt->connection = conn;
         cxt->filename = strdup(fname);
 	if (!cxt->filename) {
 	    free(cxt);
 	    cxt = NULL;
 	}
-
         // we should read control files for 'fname'
     }
 
@@ -264,18 +266,18 @@ sc_follow_context_open(sc_follow_context* cxt)
 }
 
 int
-_sc_follow_context_proc_data(sc_follow_context* cxt, sc_aggregator_connection* conn, sc_message* msg, sc_message** ppresp)
+_sc_follow_context_proc_data(sc_follow_context* cxt, sc_message* msg, sc_message** ppresp)
 {
     int ret;
     *ppresp = NULL;
 
-    if ((ret = sc_aggregator_connection_send_message(conn, msg)) != 0) {
+    if ((ret = sc_aggregator_connection_send_message(cxt->connection, msg)) != 0) {
 	// connection broken
 	fprintf(stderr, "connection has broken.\n");
 	return ret;
     }
 
-    if ((ret = sc_aggregator_connection_receive_message(conn, ppresp)) != 0) {
+    if ((ret = sc_aggregator_connection_receive_message(cxt->connection, ppresp)) != 0) {
 	fprintf(stderr, "connection has broken. (2) = %d\n", ret);
 
 	// reconnect
@@ -286,7 +288,7 @@ _sc_follow_context_proc_data(sc_follow_context* cxt, sc_aggregator_connection* c
 }
 
 int
-sc_follow_context_run(sc_follow_context* cxt, sc_aggregator_connection* conn)
+sc_follow_context_run(sc_follow_context* cxt)
 {
     ssize_t csize = 2048;
     sc_message* msg = sc_message_new(csize), *resp = NULL;
@@ -310,11 +312,11 @@ sc_follow_context_run(sc_follow_context* cxt, sc_aggregator_connection* conn)
 	msg->channel = htons(cxt->channel);
 	msg->length  = htonl(cb);
 
-	if (_sc_follow_context_proc_data(cxt, conn, msg, &resp) != 0) {
+	if (_sc_follow_context_proc_data(cxt, msg, &resp) != 0) {
 	    // reconnect
 	    fprintf(stderr, "reconnect now\n");
-	    sc_aggregator_connection_open(conn);
-            sc_follow_context_sync_file(cxt, conn);
+	    sc_aggregator_connection_open(cxt->connection);
+            sc_follow_context_sync_file(cxt);
 	}
 
 	// here, we proceed response from aggregator
@@ -373,7 +375,7 @@ main(int argc, char** argv)
     sc_aggregator_connection_open(conn);
     fprintf(stderr, "conn = %p\n", conn);
 
-    cxt0 = sc_follow_context_new(fname0);
+    cxt0 = sc_follow_context_new(fname0, conn);
     sc_follow_context_open(cxt0);
     fprintf(stderr, "cxt0 = %p\n", cxt0);
 
@@ -381,10 +383,10 @@ main(int argc, char** argv)
     // sc_follow_context_open(cxt1);
     // fprintf(stderr, "cxt1 = %p\n", cxt1);
 
-    sc_follow_context_sync_file(cxt0, conn);
+    sc_follow_context_sync_file(cxt0);
     // sc_follow_context_sync_file(cxt1, conn);
 
     // _add_file(epfd, cxt0->fd);
 
-    return sc_follow_context_run(cxt0, conn);
+    return sc_follow_context_run(cxt0);
 }
