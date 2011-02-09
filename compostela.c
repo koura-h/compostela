@@ -178,6 +178,26 @@ sc_connection_channel(sc_connection* conn, int id)
     return channel;
 }
 
+void
+sc_connection_delete_channel(sc_connection* conn, sc_channel* channel)
+{
+    sc_channel* ch0 = NULL, *ch = NULL;
+
+    for (ch = conn->channel_list; ch; ch = ch->_next) {
+        if (ch == channel) {
+	    if (ch0) {
+	        ch0->_next = ch->_next;
+	    } else {
+		conn->channel_list = ch->_next;
+	    }
+	    ch->_next = NULL;
+	    sc_channel_destroy(ch);
+	    break;
+	}
+	ch0 = ch;
+    }
+}
+
 
 ////////////////////////////////////////
 
@@ -375,6 +395,25 @@ handler_data(sc_message* msg, sc_connection* conn, sc_channel* channel)
 }
 
 int
+handler_dele(sc_message* msg, sc_connection* conn, sc_channel* channel)
+{
+    int n;
+    sc_connection_delete_channel(conn, channel);
+
+    sc_message* ok = sc_message_new(sizeof(int32_t));
+
+    ok->code    = htons(SCM_RESP_OK);
+    ok->channel = htons(msg->channel);
+    ok->length  = htonl(sizeof(int32_t));
+    memset(ok->content, 0, sizeof(int32_t));
+
+    n = sendall(conn->socket, ok, offsetof(sc_message, content) + sizeof(int32_t), 0);
+
+    sc_message_destroy(ok);
+    return 0;
+}
+
+int
 handler_pos(sc_message* msg, sc_connection* conn, sc_channel* channel)
 {
     int n;
@@ -421,19 +460,20 @@ do_receive(int epfd, sc_connection* conn)
 	msg->channel = ntohs(msg->channel);
         msg->length  = ntohl(msg->length);
 	fprintf(stderr, "n = %d, code = %d, channel = %d, length = %d\n", n, msg->code, msg->channel, msg->length);
-        n = recvall(c, &msg->content, msg->length, 0);
+	if (msg->length > 0) {
+            n = recvall(c, &msg->content, msg->length, 0);
+	    fprintf(stderr, "n = %d\n", n, msg->code, msg->channel, msg->length);
+	}
 
 	code = msg->code;
 	if (msg->channel == 0) {
-	    code = SCM_MSG_INIT;
+	    assert(code == SCM_MSG_INIT);
 	}
-	fprintf(stderr, "n = %d\n", n, msg->code, msg->channel, msg->length);
 
         channel = sc_connection_channel(conn, msg->channel);
 	if (!channel) {
 	    fprintf(stderr, "conn=%p, I might be happened to restart?\n", conn);
 	    assert(code == SCM_MSG_INIT);
-	    // code = SCM_MSG_INIT;
 	}
 
 	switch (msg->code) {
@@ -445,6 +485,9 @@ do_receive(int epfd, sc_connection* conn)
 	    break;
 	case SCM_MSG_DATA:
 	    handler_data(msg, conn, channel);
+	    break;
+	case SCM_MSG_DELE:
+	    handler_dele(msg, conn, channel);
 	    break;
 	}
     } else if (n == 0) {

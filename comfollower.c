@@ -7,13 +7,14 @@
 #include <string.h>
 #include <fcntl.h>
 #include <netdb.h>
+#include <assert.h>
 
 #include <byteswap.h>
 
 #include "scmessage.h"
 #include "supports.h"
 
-
+enum { BUFSIZE = 2048 };
 enum { PORT = 8187 };
 
 typedef struct _sc_follow_context {
@@ -170,12 +171,13 @@ sc_aggregator_connection_send_message(sc_aggregator_connection* conn, sc_message
     int ret = 0;
     int32_t len = ntohl(msg->length);
 
-    fprintf(stderr, "code = %d, channel = %d, length = %lx\n", ntohs(msg->code), ntohs(msg->channel), len);
+    fprintf(stderr, "send_message: code = %d, channel = %d, length = %lx\n", ntohs(msg->code), ntohs(msg->channel), len);
     if ((ret = sendall(conn->socket, msg, len + offsetof(sc_message, content), 0)) <= 0) {
         perror("sendall");
         fprintf(stderr, "sending error\n");
         return -1;
     }
+    fprintf(stderr, "send_message: done\n");
 
     return 0;
 }
@@ -205,8 +207,10 @@ sc_aggregator_connection_receive_message(sc_aggregator_connection* conn, sc_mess
     }
 
     memcpy(m, buf, sizeof(buf));
-    if (recvall(conn->socket, m->content, len, 0) <= 0) {
-        return -3;
+    if (len > 0) {
+        if (recvall(conn->socket, m->content, len, 0) <= 0) {
+            return -3;
+        }
     }
 
     *pmsg = m;
@@ -236,6 +240,8 @@ sc_follow_context_new(const char* fname, sc_aggregator_connection* conn)
         memset(cxt, 0, sizeof(sc_follow_context));
 
 	cxt->connection = conn;
+	cxt->_fd = -1;
+
         cxt->filename = strdup(fname);
 	if (!cxt->filename) {
 	    free(cxt);
@@ -248,20 +254,33 @@ sc_follow_context_new(const char* fname, sc_aggregator_connection* conn)
 }
 
 int
-sc_follow_context_open(sc_follow_context* cxt)
+sc_follow_context_open_file(sc_follow_context* cxt, int use_lseek)
 {
     // struct stat st;
 
     cxt->_fd = open(cxt->filename, O_RDONLY);
-    if (cxt->_fd <= 0) {
+    if (cxt->_fd < 0) {
         return -1;
     }
 
 /*
     fstat(cxt->_fd, &st);
     cxt->filesize = st.st_size;
-    lseek(cxt->_fd, cxt->current_position, SEEK_SET);
     */
+    if (use_lseek) {
+        lseek(cxt->_fd, cxt->current_position, SEEK_SET);
+    }
+    return 0;
+}
+
+int
+sc_follow_context_close_file(sc_follow_context* cxt)
+{
+    assert(cxt != NULL);
+    if (cxt->_fd > 0) {
+        close(cxt->_fd);
+	cxt->_fd = -1;
+    }
     return 0;
 }
 
@@ -288,41 +307,88 @@ _sc_follow_context_proc_data(sc_follow_context* cxt, sc_message* msg, sc_message
 }
 
 int
-sc_follow_context_run(sc_follow_context* cxt)
+_sc_follow_context_proc_dele(sc_follow_context* cxt, sc_message* msg, sc_message** ppresp)
 {
-    ssize_t csize = 2048;
-    sc_message* msg = sc_message_new(csize), *resp = NULL;
     int ret = 0;
+    *ppresp = NULL;
+
+    if ((ret = sc_aggregator_connection_send_message(cxt->connection, msg)) != 0) {
+	// connection broken
+	fprintf(stderr, "connection has broken.\n");
+	return ret;
+    }
+
+    if ((ret = sc_aggregator_connection_receive_message(cxt->connection, ppresp)) != 0) {
+	fprintf(stderr, "connection has broken. (2) = %d\n", ret);
+
+	// reconnect
+	return ret;
+    }
+
+    return ret;
+}
+int
+sc_follow_context_run(sc_follow_context* cxt, sc_message* msgbuf, sc_message** presp)
+{
+    // sc_message* msg = sc_message_new(csize), *resp = NULL;
+    int ret = 0, cb = 0;
+    off_t cur;
+
+    assert(presp != NULL);
+    *presp = NULL;
 
     fprintf(stderr, "context run\n");
 
-    while (1) {
-	int32_t cb = read(cxt->_fd, &msg->content, csize);
-	if (cb <= 0) {
-            sleep(1);
-	    continue;
-	}
-
-	if (cxt->channel == 0) {
-	    // to be registered
-	}
-	fprintf(stderr, "reading file...\n");
-
-        msg->code    = htons(SCM_MSG_DATA);
-	msg->channel = htons(cxt->channel);
-	msg->length  = htonl(cb);
-
-	if (_sc_follow_context_proc_data(cxt, msg, &resp) != 0) {
-	    // reconnect
-	    fprintf(stderr, "reconnect now\n");
-	    sc_aggregator_connection_open(cxt->connection);
-            sc_follow_context_sync_file(cxt);
-	}
-
-	// here, we proceed response from aggregator
-	sc_message_destroy(resp);
+    if (cxt->_fd <= 0) {
+        sc_follow_context_open_file(cxt, 1);
+        sc_follow_context_sync_file(cxt);
     }
-    sc_message_destroy(msg);
+
+    cb = read(cxt->_fd, &msgbuf->content, BUFSIZE);
+    if (cb == 0) {
+        // sleep(1);
+	// continue;
+        msgbuf->code    = htons(SCM_MSG_DELE);
+        msgbuf->channel = htons(cxt->channel);
+        msgbuf->length  = 0;
+
+	_sc_follow_context_proc_dele(cxt, msgbuf, presp);
+	fprintf(stderr, "DELE: done\n");
+	if (htons((*presp)->code) == SCM_RESP_OK) {
+	    cxt->channel = 0;
+
+	    sc_follow_context_close_file(cxt);
+	}
+	return -1001;
+    } else if (cb < 0) {
+        return -1;
+    }
+
+    // cxt->current_position = lseek(cxt->_fd, 0, SEEK_CUR);
+    cur = lseek(cxt->_fd, 0, SEEK_CUR);
+
+    assert(cxt->channel != 0);
+
+    fprintf(stderr, "reading file...\n");
+
+    msgbuf->code    = htons(SCM_MSG_DATA);
+    msgbuf->channel = htons(cxt->channel);
+    msgbuf->length  = htonl(cb);
+
+    if (_sc_follow_context_proc_data(cxt, msgbuf, presp) != 0) {
+	// reconnect
+	fprintf(stderr, "reconnect now\n");
+	sc_aggregator_connection_open(cxt->connection);
+        sc_follow_context_sync_file(cxt);
+	// reconnected
+	return 1;
+    }
+
+    if (htons((*presp)->code) == SCM_RESP_OK) {
+        cxt->current_position = cur;
+    }
+
+    return 0;
 }
 
 void
@@ -362,7 +428,10 @@ main(int argc, char** argv)
 
     const char* servhost = (argc > 1 ? argv[1] : "log");
     const char* fname0   = (argc > 2 ? argv[2] : "_default_");
-    // const char* fname1   = (argc > 3 ? argv[3] : "_default_");
+    const char* fname1   = (argc > 3 ? argv[3] : "_default_");
+
+    int ret;
+    sc_message *msg, *resp;
 
 /*
     if ((epfd = epoll_create(MAX_EVENTS)) < 0) {
@@ -376,17 +445,38 @@ main(int argc, char** argv)
     fprintf(stderr, "conn = %p\n", conn);
 
     cxt0 = sc_follow_context_new(fname0, conn);
-    sc_follow_context_open(cxt0);
+    sc_follow_context_open_file(cxt0, 0);
     fprintf(stderr, "cxt0 = %p\n", cxt0);
 
-    // cxt1 = sc_follow_context_new(fname1);
-    // sc_follow_context_open(cxt1);
-    // fprintf(stderr, "cxt1 = %p\n", cxt1);
-
     sc_follow_context_sync_file(cxt0);
+
+    if (argc > 3) {
+        cxt1 = sc_follow_context_new(fname1, conn);
+        sc_follow_context_open_file(cxt1, 0);
+        fprintf(stderr, "cxt1 = %p\n", cxt1);
+
+        sc_follow_context_sync_file(cxt1);
+    }
+
     // sc_follow_context_sync_file(cxt1, conn);
 
     // _add_file(epfd, cxt0->fd);
 
-    return sc_follow_context_run(cxt0);
+    msg = sc_message_new(BUFSIZE);
+    while (1) {
+        resp = NULL;
+        ret = sc_follow_context_run(cxt0, msg, &resp);
+	if (ret == -1001) {
+	    // sleep(1);
+	    sleep(5);
+	    continue;
+	} else if (ret == -1) {
+	    perror("sc_follow_context_run");
+	    exit(1);
+	}
+
+        // here, we proceed response from aggregator
+        sc_message_destroy(resp);
+    }
+    sc_message_destroy(msg);
 }

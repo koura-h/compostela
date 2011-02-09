@@ -28,7 +28,7 @@ comfollower.o: comfollower.c /usr/include/sys/types.h \
   /usr/include/asm/socket.h /usr/include/asm/sockios.h \
   /usr/include/bits/in.h /usr/include/bits/byteswap.h \
   /usr/include/rpc/netdb.h /usr/include/bits/netdb.h \
-  /usr/include/byteswap.h scmessage.h supports.h
+  /usr/include/assert.h /usr/include/byteswap.h scmessage.h supports.h
 
 /usr/include/sys/types.h:
 
@@ -143,6 +143,8 @@ comfollower.o: comfollower.c /usr/include/sys/types.h \
 /usr/include/rpc/netdb.h:
 
 /usr/include/bits/netdb.h:
+
+/usr/include/assert.h:
 
 /usr/include/byteswap.h:
 
