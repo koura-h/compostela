@@ -11,3 +11,4 @@ comfollower
 *.o
 a.out
 tmp
+*.tar.gz

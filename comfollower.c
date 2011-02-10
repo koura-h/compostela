@@ -11,6 +11,8 @@
 
 #include <byteswap.h>
 
+#include "azlist.h"
+
 #include "scmessage.h"
 #include "supports.h"
 
@@ -398,32 +400,14 @@ sc_follow_context_destroy(sc_follow_context* cxt)
     free(cxt);
 }
 
-
-/*
-int
-_add_file(int epfd, int fd)
-{
-    // epfd = epoll_create(MAX_EVENTS);
-    struct epoll_event ev;
-    int flags;
-
-    memset(&ev, 0, sizeof(ev));
-    ev.events = EPOLLIN | EPOLLET;
-    ev.data.fd = fd;
-
-    flags = fcntl(fd. F_GETFL);
-    fcntl(fd, F_SETFL, O_NONBLOCK);
-
-    return epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev);
-}
-*/
+az_list* g_context_list;
 
 int
 main(int argc, char** argv)
 {
     int epfd;
 
-    sc_follow_context *cxt0 = NULL, *cxt1 = NULL;
+    sc_follow_context *cxt = NULL;
     sc_aggregator_connection *conn = NULL;
 
     const char* servhost = (argc > 1 ? argv[1] : "log");
@@ -433,29 +417,26 @@ main(int argc, char** argv)
     int ret;
     sc_message *msg, *resp;
 
-/*
-    if ((epfd = epoll_create(MAX_EVENTS)) < 0) {
-        perror("epoll_create");
-        return -1;
-    }
-    */
-
     conn = sc_aggregator_connection_new(2048, servhost, PORT);
     sc_aggregator_connection_open(conn);
     fprintf(stderr, "conn = %p\n", conn);
 
-    cxt0 = sc_follow_context_new(fname0, conn);
-    sc_follow_context_open_file(cxt0, 0);
-    fprintf(stderr, "cxt0 = %p\n", cxt0);
+    cxt = sc_follow_context_new(fname0, conn);
+    sc_follow_context_open_file(cxt, 0);
+    fprintf(stderr, "cxt0 = %p\n", cxt);
 
-    sc_follow_context_sync_file(cxt0);
+    sc_follow_context_sync_file(cxt);
+
+    g_context_list = az_list_add(g_context_list, cxt);
 
     if (argc > 3) {
-        cxt1 = sc_follow_context_new(fname1, conn);
-        sc_follow_context_open_file(cxt1, 0);
-        fprintf(stderr, "cxt1 = %p\n", cxt1);
+        cxt = sc_follow_context_new(fname1, conn);
+        sc_follow_context_open_file(cxt, 0);
+        fprintf(stderr, "cxt1 = %p\n", cxt);
 
-        sc_follow_context_sync_file(cxt1);
+        sc_follow_context_sync_file(cxt);
+
+        g_context_list = az_list_add(g_context_list, cxt);
     }
 
     // sc_follow_context_sync_file(cxt1, conn);
@@ -464,19 +445,26 @@ main(int argc, char** argv)
 
     msg = sc_message_new(BUFSIZE);
     while (1) {
-        resp = NULL;
-        ret = sc_follow_context_run(cxt0, msg, &resp);
-	if (ret == -1001) {
-	    // sleep(1);
-	    sleep(5);
-	    continue;
-	} else if (ret == -1) {
-	    perror("sc_follow_context_run");
-	    exit(1);
-	}
+        az_list* li;
+	int sl = 0;
 
-        // here, we proceed response from aggregator
-        sc_message_destroy(resp);
+	for (li = g_context_list; li; li = li->next) {
+            resp = NULL;
+            ret = sc_follow_context_run(li->object, msg, &resp);
+	    if (ret == -1001) {
+	        sl = 5;
+	    } else if (ret == -1) {
+	        perror("sc_follow_context_run");
+	        exit(1);
+	    }
+
+            // here, we proceed response from aggregator
+            sc_message_destroy(resp);
+	}
+	if (sl > 0) {
+	    sleep(sl);
+	    continue;
+	}
     }
     sc_message_destroy(msg);
 }
