@@ -53,7 +53,7 @@ am_comfollower_OBJECTS = comfollower.$(OBJEXT) scmessage.$(OBJEXT) \
 comfollower_OBJECTS = $(am_comfollower_OBJECTS)
 comfollower_LDADD = $(LDADD)
 am_compostela_OBJECTS = compostela.$(OBJEXT) scmessage.$(OBJEXT) \
-	supports.$(OBJEXT)
+	supports.$(OBJEXT) azlist.$(OBJEXT)
 compostela_OBJECTS = $(am_compostela_OBJECTS)
 compostela_LDADD = $(LDADD)
 DEFAULT_INCLUDES = -I.
@@ -163,7 +163,7 @@ target_alias =
 top_builddir = .
 top_srcdir = .
 comfollower_SOURCES = comfollower.c scmessage.c scmessage.h supports.h supports.c azlist.h azlist.c
-compostela_SOURCES = compostela.c scmessage.c scmessage.h supports.h supports.c
+compostela_SOURCES = compostela.c scmessage.c scmessage.h supports.h supports.c azlist.h azlist.c
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-am
 

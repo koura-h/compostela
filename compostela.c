@@ -15,6 +15,7 @@
 
 #include "scmessage.h"
 #include "supports.h"
+#include "azlist.h"
 
 enum { PORT = 8187 };
 
@@ -35,7 +36,7 @@ typedef struct _sc_channel {
     //
     struct _sc_connection* connection;
     //
-    struct _sc_channel *_next;
+    //struct _sc_channel *_next;
 } sc_channel;
 
 ////////////////////////////////////////
@@ -47,7 +48,8 @@ typedef struct _sc_connection {
     char *remote_addr;
     //
     // channel list here
-    struct _sc_channel* channel_list;
+    // struct _sc_channel* channel_list;
+    az_list* channel_list;
     //
     int socket;
 } sc_connection;
@@ -63,7 +65,6 @@ sc_channel_new(const char* fname, sc_connection* conn)
 	    channel->filename = strdup(fname);
 	}
 	channel->connection = conn;
-	channel->_next = NULL;
     }
     return channel;
 }
@@ -123,16 +124,15 @@ sc_connection_set_remote_addr(sc_connection* conn, struct sockaddr* sa, socklen_
 void
 sc_connection_destroy(sc_connection* conn)
 {
-    sc_channel* c = conn->channel_list, *c0;
+    sc_channel* c;
+    az_list* li;
+
+    for (li = conn->channel_list; li; li = li->next) {
+        sc_channel_destroy(li->object);
+    }
+    az_list_delete_all(conn->channel_list);
 
     fprintf(stderr, "%s(%d) %s\n", __FILE__, __LINE__, __func__);
-
-    while (c) {
-        c0 = c;
-	c = c->_next;
-	fprintf(stderr, "c0 = %p, c = %p\n", c0, c);
-        sc_channel_destroy(c0);
-    }
 
     free(conn->remote_addr);
     free(conn->sockaddr);
@@ -143,24 +143,19 @@ int
 sc_connection_register_channel(sc_connection* conn, sc_channel* channel)
 {
     int id = 0;
-    sc_channel* last = NULL, *ch;
+    sc_channel* last = NULL, *c;
+    az_list *li;
 
-    for (ch = conn->channel_list; ch; ch = ch->_next) {
-        if (channel == ch) {
+    for (li = conn->channel_list; li; li = li->next) {
+        c = li->object;
+        if (channel == c) {
 	    // error: double registration
 	    return -1;
 	}
-	id = (id < ch->id ? ch->id : id);
-        //
-        last = ch;
+	id = (id < c->id ? c->id : id);
     }
 
-    if (last) {
-        last->_next = channel;
-    } else {
-        conn->channel_list = channel;
-    }
-    channel->_next = NULL;
+    conn->channel_list = az_list_add(conn->channel_list, channel);
     channel->id = id + 1;
 
     return 0;
@@ -169,8 +164,10 @@ sc_connection_register_channel(sc_connection* conn, sc_channel* channel)
 sc_channel*
 sc_connection_channel(sc_connection* conn, int id)
 {
+    az_list* li;
     sc_channel* channel = NULL;
-    for (channel = conn->channel_list; channel; channel = channel->_next) {
+    for (li = conn->channel_list; li; li = li->next) {
+        channel = li->object;
         if (channel->id == id) {
 	    break;
 	}
@@ -181,21 +178,8 @@ sc_connection_channel(sc_connection* conn, int id)
 void
 sc_connection_delete_channel(sc_connection* conn, sc_channel* channel)
 {
-    sc_channel* ch0 = NULL, *ch = NULL;
-
-    for (ch = conn->channel_list; ch; ch = ch->_next) {
-        if (ch == channel) {
-	    if (ch0) {
-	        ch0->_next = ch->_next;
-	    } else {
-		conn->channel_list = ch->_next;
-	    }
-	    ch->_next = NULL;
-	    sc_channel_destroy(ch);
-	    break;
-	}
-	ch0 = ch;
-    }
+    conn->channel_list = az_list_delete(conn->channel_list, channel);
+    sc_channel_destroy(channel);
 }
 
 

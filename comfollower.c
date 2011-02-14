@@ -350,6 +350,7 @@ sc_follow_context_run(sc_follow_context* cxt, sc_message* msgbuf, sc_message** p
     if (cb == 0) {
         // sleep(1);
 	// continue;
+	/*
         msgbuf->code    = htons(SCM_MSG_DELE);
         msgbuf->channel = htons(cxt->channel);
         msgbuf->length  = 0;
@@ -361,6 +362,7 @@ sc_follow_context_run(sc_follow_context* cxt, sc_message* msgbuf, sc_message** p
 
 	    sc_follow_context_close_file(cxt);
 	}
+	*/
 	return -1001;
     } else if (cb < 0) {
         return -1;
@@ -452,7 +454,7 @@ main(int argc, char** argv)
             resp = NULL;
             ret = sc_follow_context_run(li->object, msg, &resp);
 	    if (ret == -1001) {
-	        sl = 5;
+	        sl = 1;
 	    } else if (ret == -1) {
 	        perror("sc_follow_context_run");
 	        exit(1);

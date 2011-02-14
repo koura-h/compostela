@@ -30,7 +30,7 @@ compostela.o: compostela.c /usr/include/sys/epoll.h /usr/include/stdint.h \
   /usr/include/bits/string.h /usr/include/bits/string2.h \
   /usr/include/stdlib.h /usr/include/fcntl.h /usr/include/bits/fcntl.h \
   /usr/include/alloca.h /usr/include/libgen.h /usr/include/assert.h \
-  /usr/include/byteswap.h scmessage.h supports.h
+  /usr/include/byteswap.h scmessage.h supports.h azlist.h
 
 /usr/include/sys/epoll.h:
 
@@ -161,3 +161,5 @@ compostela.o: compostela.c /usr/include/sys/epoll.h /usr/include/stdint.h \
 scmessage.h:
 
 supports.h:
+
+azlist.h:
