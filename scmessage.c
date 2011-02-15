@@ -21,3 +21,9 @@ sc_message_destroy(sc_message* msg)
     free(msg);
 }
 
+sc_message*
+sc_message_resize(sc_message* msg, ssize_t newsize)
+{
+    sc_message *ret = (sc_message*)realloc(msg, offsetof(sc_message, content) + newsize);
+    return ret;
+}

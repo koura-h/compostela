@@ -12,11 +12,12 @@
 #include <byteswap.h>
 
 #include "azlist.h"
+#include "azbuffer.h"
 
 #include "scmessage.h"
 #include "supports.h"
 
-enum { BUFSIZE = 2048 };
+enum { BUFSIZE = 8196 };
 enum { PORT = 8187 };
 
 typedef struct _sc_follow_context {
@@ -26,9 +27,7 @@ typedef struct _sc_follow_context {
     off_t filesize;
     int _fd;
     //
-    unsigned char *buffer;
-    unsigned char *buffer_cursor;
-    size_t buffer_size;
+    az_buffer* buffer;
     //
     struct _sc_aggregator_connection *connection;
 } sc_follow_context;
@@ -38,18 +37,16 @@ typedef struct _sc_follow_context {
 
 typedef struct _sc_aggregator_connection {
     int socket;
-    char *buffer;
     //
     char *host;
     int port;
 } sc_aggregator_connection;
 
 sc_aggregator_connection*
-sc_aggregator_connection_new(ssize_t bufsize, const char* host, int port)
+sc_aggregator_connection_new(const char* host, int port)
 {
     sc_aggregator_connection* conn = (sc_aggregator_connection*)malloc(sizeof(sc_aggregator_connection));
     if (conn) {
-        conn->buffer = malloc(bufsize);
 	conn->host = strdup(host);
 	conn->port = port;
     }
@@ -230,7 +227,6 @@ sc_aggregator_connection_destroy(sc_aggregator_connection* conn)
     sc_aggregator_connection_close(conn);
 
     free(conn->host);
-    free(conn->buffer);
     free(conn);
 }
 
@@ -254,6 +250,8 @@ sc_follow_context_new(const char* fname, sc_aggregator_connection* conn)
 	    cxt = NULL;
 	}
         // we should read control files for 'fname'
+
+        cxt->buffer = az_buffer_new(BUFSIZE);
     }
 
     return cxt;
@@ -333,6 +331,43 @@ _sc_follow_context_proc_dele(sc_follow_context* cxt, sc_message* msg, sc_message
 
     return ret;
 }
+
+int
+_sc_follow_context_read_line(sc_follow_context* cxt, unsigned char* dst, size_t dsize)
+{
+    int n, m;
+    unsigned char* p = dst;
+    size_t u;
+
+    if (az_buffer_unread_bytes(cxt->buffer) == 0) {
+        cxt->buffer->cursor = cxt->buffer->buffer;
+	cxt->buffer->used = 0;
+        n = az_buffer_fetch_file(cxt->buffer, cxt->_fd, az_buffer_unused_bytes(cxt->buffer));
+	if (n <= 0) {
+	    return n;
+	}
+    }
+
+    while ((n = az_buffer_read_line(cxt->buffer, p, dst + dsize - p, &u)) != 0) {
+        assert(n > 0); // Now, 'dst/dsize' assumes to have enough space always.
+
+	p += u;
+
+        cxt->buffer->cursor = cxt->buffer->buffer;
+	cxt->buffer->used = 0;
+	n = az_buffer_fetch_file(cxt->buffer, cxt->_fd, az_buffer_unused_bytes(cxt->buffer));
+	if (n <= 0) {
+	    m = az_buffer_push_back(cxt->buffer, dst, dst + dsize - p);
+	    assert(m == 0);
+	    return n;
+	}
+    }
+
+    *p = '\0';
+    return p - dst;
+}
+
+
 int
 sc_follow_context_run(sc_follow_context* cxt, sc_message* msgbuf, sc_message** presp)
 {
@@ -350,7 +385,8 @@ sc_follow_context_run(sc_follow_context* cxt, sc_message* msgbuf, sc_message** p
         sc_follow_context_sync_file(cxt);
     }
 
-    cb = read(cxt->_fd, &msgbuf->content, BUFSIZE);
+    // cb = read(cxt->_fd, &msgbuf->content, BUFSIZE);
+    cb = _sc_follow_context_read_line(cxt, &msgbuf->content, BUFSIZE);
     if (cb == 0) {
         // sleep(1);
 	// continue;
@@ -402,6 +438,7 @@ sc_follow_context_run(sc_follow_context* cxt, sc_message* msgbuf, sc_message** p
 void
 sc_follow_context_destroy(sc_follow_context* cxt)
 {
+    free(cxt->buffer);
     free(cxt->filename);
     free(cxt);
 }
@@ -423,7 +460,7 @@ main(int argc, char** argv)
     int ret;
     sc_message *msg, *resp;
 
-    conn = sc_aggregator_connection_new(2048, servhost, PORT);
+    conn = sc_aggregator_connection_new(servhost, PORT);
     sc_aggregator_connection_open(conn);
     fprintf(stderr, "conn = %p\n", conn);
 

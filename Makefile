@@ -49,7 +49,7 @@ am__installdirs = "$(DESTDIR)$(bindir)"
 binPROGRAMS_INSTALL = $(INSTALL_PROGRAM)
 PROGRAMS = $(bin_PROGRAMS)
 am_comfollower_OBJECTS = comfollower.$(OBJEXT) scmessage.$(OBJEXT) \
-	supports.$(OBJEXT) azlist.$(OBJEXT)
+	supports.$(OBJEXT) azlist.$(OBJEXT) azbuffer.$(OBJEXT)
 comfollower_OBJECTS = $(am_comfollower_OBJECTS)
 comfollower_LDADD = $(LDADD)
 am_compostela_OBJECTS = compostela.$(OBJEXT) scmessage.$(OBJEXT) \
@@ -162,7 +162,7 @@ sysconfdir = ${prefix}/etc
 target_alias = 
 top_builddir = .
 top_srcdir = .
-comfollower_SOURCES = comfollower.c scmessage.c scmessage.h supports.h supports.c azlist.h azlist.c
+comfollower_SOURCES = comfollower.c scmessage.c scmessage.h supports.h supports.c azlist.h azlist.c azbuffer.h azbuffer.c
 compostela_SOURCES = compostela.c scmessage.c scmessage.h supports.h supports.c azlist.h azlist.c
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-am
@@ -255,6 +255,7 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
+include ./$(DEPDIR)/azbuffer.Po
 include ./$(DEPDIR)/azlist.Po
 include ./$(DEPDIR)/comfollower.Po
 include ./$(DEPDIR)/compostela.Po

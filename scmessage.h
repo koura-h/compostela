@@ -31,11 +31,11 @@ typedef struct _scm_command_pos {
 extern "C" {
 #endif
 
-sc_message*
-sc_message_new(ssize_t content_size);
+sc_message* sc_message_new(ssize_t content_size);
 
-void
-sc_message_destroy(sc_message* msg);
+void sc_message_destroy(sc_message* msg);
+
+sc_message* sc_message_resize(sc_message* msg, ssize_t newsize);
 
 #if defined(__cplusplus)
 }
