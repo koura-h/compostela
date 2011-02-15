@@ -333,11 +333,13 @@ _sc_follow_context_proc_dele(sc_follow_context* cxt, sc_message* msg, sc_message
 }
 
 int
-_sc_follow_context_read_line(sc_follow_context* cxt, unsigned char* dst, size_t dsize)
+_sc_follow_context_read_line(sc_follow_context* cxt, char* dst, size_t dsize)
 {
     int n, m;
-    unsigned char* p = dst;
+    char* p = dst;
     size_t u;
+
+    fprintf(stderr, ">>> _sc_follow_context_read_line\n");
 
     if (az_buffer_unread_bytes(cxt->buffer) == 0) {
         cxt->buffer->cursor = cxt->buffer->buffer;
@@ -363,7 +365,9 @@ _sc_follow_context_read_line(sc_follow_context* cxt, unsigned char* dst, size_t 
 	}
     }
 
+    p += u;
     *p = '\0';
+    fprintf(stderr, "<<< _sc_follow_context_read_line (%s)\n", dst);
     return p - dst;
 }
 
@@ -386,7 +390,7 @@ sc_follow_context_run(sc_follow_context* cxt, sc_message* msgbuf, sc_message** p
     }
 
     // cb = read(cxt->_fd, &msgbuf->content, BUFSIZE);
-    cb = _sc_follow_context_read_line(cxt, &msgbuf->content, BUFSIZE);
+    cb = _sc_follow_context_read_line(cxt, msgbuf->content, BUFSIZE);
     if (cb == 0) {
         // sleep(1);
 	// continue;

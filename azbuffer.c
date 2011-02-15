@@ -127,7 +127,7 @@ int
 az_buffer_push_back(az_buffer* buf, const char* src, size_t ssize)
 {
     assert(buf->cursor == buf->buffer);
-    
+
     if (ssize + buf->used <= buf->size) {
         return -1;
     }
