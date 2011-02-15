@@ -26,6 +26,10 @@ typedef struct _sc_follow_context {
     off_t filesize;
     int _fd;
     //
+    unsigned char *buffer;
+    unsigned char *buffer_cursor;
+    size_t buffer_size;
+    //
     struct _sc_aggregator_connection *connection;
 } sc_follow_context;
 
@@ -448,7 +452,7 @@ main(int argc, char** argv)
     msg = sc_message_new(BUFSIZE);
     while (1) {
         az_list* li;
-	int sl = 0;
+	int sl = 1;
 
 	for (li = g_context_list; li; li = li->next) {
             resp = NULL;
@@ -458,6 +462,8 @@ main(int argc, char** argv)
 	    } else if (ret == -1) {
 	        perror("sc_follow_context_run");
 	        exit(1);
+	    } else {
+	        sl = 0;
 	    }
 
             // here, we proceed response from aggregator
