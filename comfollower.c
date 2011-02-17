@@ -359,7 +359,7 @@ _sc_follow_context_read_line(sc_follow_context* cxt, char* dst, size_t dsize)
 	cxt->buffer->used = 0;
 	n = az_buffer_fetch_file(cxt->buffer, cxt->_fd, az_buffer_unused_bytes(cxt->buffer));
 	if (n <= 0) {
-	    m = az_buffer_push_back(cxt->buffer, dst, dst + dsize - p);
+	    m = az_buffer_push_back(cxt->buffer, p, dst + dsize - p);
 	    assert(m == 0);
 	    return n;
 	}
