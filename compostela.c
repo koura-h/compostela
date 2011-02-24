@@ -238,6 +238,29 @@ _create_dir(const char* fpath, mode_t mode)
 
 
 int
+_do_merge_file(const char* host, const char* path, const char *data, size_t len)
+{
+    int fd;
+    // char path[PATH_MAX], dir[PATH_MAX];
+
+    fprintf(stderr, "appending to ... [%s]\n", path);
+
+    // _create_dir(dirname(dir), 0777);
+
+    fd = open(path, O_APPEND | O_RDWR | O_CREAT, default_mode);
+    if (fd == -1) {
+        perror("");
+	return -1;
+    }
+    write(fd, host, strlen(host));
+    write(fd, " ", 1);
+    write(fd, data, len);
+    close(fd);
+
+    return 0;
+}
+
+int
 _do_append_file(const char* path, const char *data, size_t len)
 {
     int fd;
@@ -363,6 +386,7 @@ handler_data(sc_message* msg, sc_connection* conn, sc_channel* channel)
 
     sc_message* ok = sc_message_new(sizeof(int32_t));
     fprintf(stderr, "channel_id = %d\n", msg->channel);
+    _do_merge_file(conn->remote_addr, channel->filename, msg->content, msg->length);
     _do_append_file(path, msg->content, msg->length);
 
     // haha

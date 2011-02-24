@@ -360,6 +360,7 @@ _sc_follow_context_read_line(sc_follow_context* cxt, char* dst, size_t dsize)
 	n = az_buffer_fetch_file(cxt->buffer, cxt->_fd, az_buffer_unused_bytes(cxt->buffer));
 	if (n <= 0) {
 	    m = az_buffer_push_back(cxt->buffer, p, dst + dsize - p);
+	    fprintf(stderr, "cxt = %p (at %s)", cxt, cxt->filename);
 	    assert(m == 0);
 	    return n;
 	}
