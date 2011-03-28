@@ -39,7 +39,7 @@ az_list_delete_all(az_list* li)
     while (i) {
         i0 = i;
         i = i->next;
-        free(i);
+        free(i0);
     }
 }
 

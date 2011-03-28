@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
@@ -128,7 +129,8 @@ az_buffer_push_back(az_buffer* buf, const char* src, size_t ssize)
 {
     assert(buf->cursor == buf->buffer);
 
-    if (ssize + buf->used <= buf->size) {
+    if (ssize + buf->used > buf->size) {
+        fprintf(stderr, "%s(%s:%d) ssize = %d, buf->used = %d, buf->size = %d\n", __func__, __FILE__, __LINE__, ssize, buf->used, buf->size);
         return -1;
     }
 

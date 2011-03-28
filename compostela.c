@@ -75,6 +75,7 @@ sc_channel_destroy(sc_channel* channel)
     fprintf(stderr, "%s(%d) %s\n", __FILE__, __LINE__, __func__);
     free(channel->filename);
     free(channel);
+    fprintf(stderr, "%s(%d) %s\n", __FILE__, __LINE__, __func__);
 }
 
 ////////////////////////////////////////
@@ -127,6 +128,7 @@ sc_connection_destroy(sc_connection* conn)
     sc_channel* c;
     az_list* li;
 
+    fprintf(stderr, "%s(%d) %s\n", __FILE__, __LINE__, __func__);
     for (li = conn->channel_list; li; li = li->next) {
         sc_channel_destroy(li->object);
     }
