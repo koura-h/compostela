@@ -22,10 +22,10 @@
 #define HAVE_MALLOC 1
 
 /* Define to 1 if you have the `memchr' function. */
-#define HAVE_MEMCHR 1
+/* #undef HAVE_MEMCHR */
 
 /* Define to 1 if you have the `memmove' function. */
-#define HAVE_MEMMOVE 1
+/* #undef HAVE_MEMMOVE */
 
 /* Define to 1 if you have the <memory.h> header file. */
 #define HAVE_MEMORY_H 1
@@ -44,7 +44,7 @@
 
 /* Define to 1 if your system has a GNU libc compatible `realloc' function,
    and to 0 otherwise. */
-#define HAVE_REALLOC 1
+/* #undef HAVE_REALLOC */
 
 /* Define to 1 if you have the `socket' function. */
 #define HAVE_SOCKET 1
