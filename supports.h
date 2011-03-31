@@ -5,6 +5,9 @@
 extern "C" {
 #endif
 
+char*
+strdup_pathcat(const char* p0, const char* p1);
+
 int
 sendall(int s, const void* data, ssize_t len, int opt);
 

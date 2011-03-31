@@ -27,6 +27,7 @@ enum { BUFSIZE = 2048 };
 
 int default_mode = 0644;
 
+const char* g_config_log_dir = "/var/log/compostela";
 
 ////////////////////////////////////////
 
@@ -246,8 +247,6 @@ _do_merge_file(const char* host, const char* path, const char *data, size_t len)
     // char path[PATH_MAX], dir[PATH_MAX];
 
     fprintf(stderr, "appending to ... [%s]\n", path);
-
-    // _create_dir(dirname(dir), 0777);
 
     fd = open(path, O_APPEND | O_RDWR | O_CREAT, default_mode);
     if (fd == -1) {
