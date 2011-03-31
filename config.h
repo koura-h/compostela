@@ -21,6 +21,12 @@
    to 0 otherwise. */
 #define HAVE_MALLOC 1
 
+/* Define to 1 if you have the `memchr' function. */
+#define HAVE_MEMCHR 1
+
+/* Define to 1 if you have the `memmove' function. */
+#define HAVE_MEMMOVE 1
+
 /* Define to 1 if you have the <memory.h> header file. */
 #define HAVE_MEMORY_H 1
 
@@ -35,6 +41,10 @@
 
 /* Define to 1 if you have the <netdb.h> header file. */
 #define HAVE_NETDB_H 1
+
+/* Define to 1 if your system has a GNU libc compatible `realloc' function,
+   and to 0 otherwise. */
+#define HAVE_REALLOC 1
 
 /* Define to 1 if you have the `socket' function. */
 #define HAVE_SOCKET 1
@@ -135,6 +145,9 @@
 
 /* Define to `long int' if <sys/types.h> does not define. */
 /* #undef off_t */
+
+/* Define to rpl_realloc if the replacement function should be used. */
+/* #undef realloc */
 
 /* Define to `unsigned int' if <sys/types.h> does not define. */
 /* #undef size_t */
