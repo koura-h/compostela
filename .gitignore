@@ -13,3 +13,4 @@ a.out
 tmp
 *.tar.gz
 config.log
+config.status
