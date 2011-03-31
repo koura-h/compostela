@@ -12,3 +12,4 @@ comfollower
 a.out
 tmp
 *.tar.gz
+config.log
