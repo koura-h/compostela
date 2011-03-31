@@ -12,6 +12,7 @@ AC_PROG_CC
 
 # Checks for libraries.
 AC_CHECK_LIB(ssl, SSL_library_init)
+AC_CHECK_LIB(cunit, CU_initialize_registry)
 
 # Checks for header files.
 AC_HEADER_DIRENT
@@ -36,5 +37,6 @@ AC_FUNC_REALLOC
 AC_FUNC_STAT
 AC_CHECK_FUNCS([memchr memmove memset mkdir socket strchr strdup])
 
-AC_CONFIG_FILES([Makefile tests/Makefile])
+AC_CONFIG_FILES([Makefile
+                 tests/Makefile])
 AC_OUTPUT
