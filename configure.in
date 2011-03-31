@@ -32,8 +32,9 @@ AC_TYPE_SSIZE_T
 AC_FUNC_CLOSEDIR_VOID
 AC_FUNC_MALLOC
 AC_FUNC_MEMCMP
+AC_FUNC_REALLOC
 AC_FUNC_STAT
-AC_CHECK_FUNCS([memset mkdir socket strchr strdup])
+AC_CHECK_FUNCS([memchr memmove memset mkdir socket strchr strdup])
 
-AC_CONFIG_FILES([Makefile])
+AC_CONFIG_FILES([Makefile tests/Makefile])
 AC_OUTPUT
