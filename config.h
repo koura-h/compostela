@@ -15,7 +15,7 @@
 #define HAVE_INTTYPES_H 1
 
 /* Define to 1 if you have the `cunit' library (-lcunit). */
-#define HAVE_LIBCUNIT 1
+/* #undef HAVE_LIBCUNIT */
 
 /* Define to 1 if you have the `ssl' library (-lssl). */
 #define HAVE_LIBSSL 1
@@ -25,10 +25,10 @@
 #define HAVE_MALLOC 1
 
 /* Define to 1 if you have the `memchr' function. */
-/* #undef HAVE_MEMCHR */
+#define HAVE_MEMCHR 1
 
 /* Define to 1 if you have the `memmove' function. */
-/* #undef HAVE_MEMMOVE */
+#define HAVE_MEMMOVE 1
 
 /* Define to 1 if you have the <memory.h> header file. */
 #define HAVE_MEMORY_H 1
@@ -47,7 +47,7 @@
 
 /* Define to 1 if your system has a GNU libc compatible `realloc' function,
    and to 0 otherwise. */
-/* #undef HAVE_REALLOC */
+#define HAVE_REALLOC 1
 
 /* Define to 1 if you have the `socket' function. */
 #define HAVE_SOCKET 1
