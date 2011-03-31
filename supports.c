@@ -13,6 +13,28 @@
 #include "supports.h"
 
 
+char*
+strdup_pathcat(const char* p0, const char* p1)
+{
+    char* p;
+    size_t n0, n1, na;
+    n0 = strlen(p0);
+    n1 = strlen(p1);
+    na = n0 + n1 + 1;
+    if (p0[n0 - 1] != '/') {
+        na++;
+    }
+    p = malloc(na);
+    strcpy(p, p0); // n0(from p0) is shorter than na
+    if (p0[n0 - 1] != '/') {
+        p[n0] = '/';
+    }
+    strcat(p, p1);
+
+    return p;
+}
+
+
 int
 sendall(int s, const void* data, ssize_t len, int opt)
 {
