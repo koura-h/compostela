@@ -8,6 +8,9 @@ extern "C" {
 char*
 strdup_pathcat(const char* p0, const char* p1);
 
+char*
+pathcat(const char* p0, ...);
+
 int
 sendall(int s, const void* data, ssize_t len, int opt);
 

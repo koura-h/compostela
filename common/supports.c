@@ -40,22 +40,29 @@ pathcat(const char* p, ...)
 {
     va_list ap;
 
-    char *ret, buf[PATH_MAX];
+    char buf[PATH_MAX];
     char *q, *s;
 
     size_t n = strlen(p);
 
-    strncpy(buf, p, n);
-    q = buf + n - 1;
+    strncpy(buf, p, sizeof(buf) - 1);
+    q = buf + n;
     va_start(ap, p);
     while (q < buf + sizeof(buf)) {
-	if (*q != '/') {
-	    *q = '/';
-	}
         s = va_arg(ap, char*);
-	strncat(q, s, buf + sizeof(buf) - q);
+	if (!s) {
+	    break;
+	}
+	if (*(q - 1) != '/') {
+	    *q++ = '/';
+	    *q = '\0';
+	}
+	strncat(q, s, buf + sizeof(buf) - q - 1);
+	q += strlen(s);
     }
     va_end(ap);
+
+    return strdup(buf);
 }
 
 

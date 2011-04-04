@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <libgen.h>
 #include <assert.h>
+#include <getopt.h>
 
 #include <byteswap.h>
 
@@ -27,7 +28,8 @@ enum { BUFSIZE = 2048 };
 
 int g_config_default_mode = 0644;
 
-const char* g_config_log_dir = "/var/log/compostela";
+// const char* g_config_log_dir = "/var/log/compostela";
+const char* g_config_log_dir = ".";
 
 ////////////////////////////////////////
 
@@ -58,6 +60,15 @@ typedef struct _sc_connection {
 
 ////////////////////////////////////////
 
+char*
+__mk_path(const char* parent, const char* fname, char *buf, size_t bufsize)
+{
+    snprintf(buf, bufsize, "%s/%s", parent, fname);
+    return buf;
+}
+
+////////////////////////////////////////
+
 sc_channel*
 sc_channel_new(const char* fname, sc_connection* conn)
 {
@@ -65,7 +76,7 @@ sc_channel_new(const char* fname, sc_connection* conn)
     if (channel) {
         if (fname) {
 	    channel->filename = strdup(fname);
-	    channel->__filename_fullpath = strdup_pathcat(g_config_log_dir, conn->remote_addr, fname);
+	    channel->__filename_fullpath = pathcat(g_config_log_dir, conn->remote_addr, fname);
 	}
 	channel->connection = conn;
     }
@@ -247,11 +258,12 @@ int
 _do_merge_file(const char* host, const char* path, const char *data, size_t len)
 {
     int fd;
-    // char path[PATH_MAX], dir[PATH_MAX];
+    char fullp[PATH_MAX];
 
+    __mk_path(g_config_log_dir, path, fullp, sizeof(fullp));
     fprintf(stderr, "appending to ... [%s]\n", path);
 
-    fd = open(path, O_APPEND | O_RDWR | O_CREAT, g_config_default_mode);
+    fd = open(fullp, O_APPEND | O_RDWR | O_CREAT, g_config_default_mode);
     if (fd == -1) {
         perror("");
 	return -1;
@@ -301,13 +313,6 @@ _do_trunc_file(const char* path, off_t pos)
     return 0;
 }
 
-char*
-__mk_path(const char* remote_addr, const char* fname, char *buf, size_t bufsize)
-{
-    snprintf(buf, bufsize, "%s/%s", remote_addr, fname);
-    return buf;
-}
-
 /*
 int
 _do_stat(const char *remote_addr, const char* fname, struct stat *pst)
@@ -334,7 +339,7 @@ handler_init(sc_message* msg, sc_connection* conn)
     int n;
     int64_t stlen = 0;
 
-    char path[PATH_MAX];
+    // char path[PATH_MAX];
     unsigned char *mhash;
     size_t mhash_size;
     struct stat st;
@@ -346,11 +351,11 @@ handler_init(sc_message* msg, sc_connection* conn)
     memcpy(channel->filename, msg->content, msg->length);
     channel->filename[msg->length] = '\0';
 
-    __mk_path(conn->remote_addr, channel->filename, path, sizeof(path));
+    // __mk_path(conn->remote_addr, channel->filename, path, sizeof(path));
 
     memset(&st, 0, sizeof(st));
-    stat(path, &st);
-    mhash_with_size(path, st.st_size, &mhash, &mhash_size);
+    stat(channel->__filename_fullpath, &st);
+    mhash_with_size(channel->__filename_fullpath, st.st_size, &mhash, &mhash_size);
 
     fprintf(stderr, "channel->filename = %s\n", channel->filename);
     fprintf(stderr, "conn->remote_addr = %s\n", conn->remote_addr);
@@ -382,16 +387,16 @@ int
 handler_data(sc_message* msg, sc_connection* conn, sc_channel* channel)
 {
     int n;
-    char path[PATH_MAX];
+    // char path[PATH_MAX];
 
     fprintf(stderr, ">>> handler_data\n");
 
-    __mk_path(conn->remote_addr, channel->filename, path, sizeof(path));
+    // __mk_path(conn->remote_addr, channel->filename, path, sizeof(path));
 
     sc_message* ok = sc_message_new(sizeof(int32_t));
     fprintf(stderr, "channel_id = %d\n", msg->channel);
     _do_merge_file(conn->remote_addr, channel->filename, msg->content, msg->length);
-    _do_append_file(path, msg->content, msg->length);
+    _do_append_file(channel->__filename_fullpath, msg->content, msg->length);
 
     // haha
     ok->code    = htons(SCM_RESP_OK);
@@ -429,12 +434,12 @@ int
 handler_pos(sc_message* msg, sc_connection* conn, sc_channel* channel)
 {
     int n;
-    char path[PATH_MAX];
+    // char path[PATH_MAX];
     int64_t pos;
 
     fprintf(stderr, ">>> handler_pos\n");
 
-    __mk_path(conn->remote_addr, channel->filename, path, sizeof(path));
+    // __mk_path(conn->remote_addr, channel->filename, path, sizeof(path));
 
     pos = *(int64_t*)msg->content;
 #if __BYTE_ORDER == __LITTLE_ENDIAN
@@ -442,7 +447,7 @@ handler_pos(sc_message* msg, sc_connection* conn, sc_channel* channel)
 #endif
 
     sc_message* ok = sc_message_new(sizeof(int32_t));
-    _do_trunc_file(path, pos);
+    _do_trunc_file(channel->__filename_fullpath, pos);
 
     // haha
     ok->code    = htons(SCM_RESP_OK);
@@ -540,7 +545,7 @@ run_main(int* socks, int num_socks)
 
     int done = 0;
 
-    fprintf(stderr, "num_socks = %d\n", num_socks);
+    // fprintf(stderr, "num_socks = %d\n", num_socks);
 
     if ((epfd = epoll_create(MAX_EVENTS)) < 0) {
         fprintf(stderr, "epoll_create error\n");
@@ -606,7 +611,23 @@ main(int argc, char** argv)
     char buf[2048], sport[NI_MAXSERV];
     ssize_t cb, n;
 
-    int yes = 1;
+    int yes = 1, ch;
+
+    struct option long_opts[] = {
+        { "log-dir", 2, NULL, 0 },
+    };
+
+    while ((ch = getopt_long(argc, argv, "L:", long_opts, NULL)) != -1) {
+        switch (ch) {
+	case 'L':
+	    g_config_log_dir = strdup(optarg);
+	    break;
+	}
+    }
+    argc -= optind;
+    argv += optind;
+
+    //
 
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = PF_UNSPEC;
