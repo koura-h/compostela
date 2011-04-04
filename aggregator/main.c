@@ -76,7 +76,8 @@ sc_channel_new(const char* fname, sc_connection* conn)
     if (channel) {
         if (fname) {
 	    channel->filename = strdup(fname);
-	    channel->__filename_fullpath = pathcat(g_config_log_dir, conn->remote_addr, fname);
+	    channel->__filename_fullpath = pathcat(g_config_log_dir, conn->remote_addr, fname, NULL);
+	    fprintf(stderr, "__filename_fullpath = %s\n", channel->__filename_fullpath);
 	}
 	channel->connection = conn;
     }
@@ -261,7 +262,7 @@ _do_merge_file(const char* host, const char* path, const char *data, size_t len)
     char fullp[PATH_MAX];
 
     __mk_path(g_config_log_dir, path, fullp, sizeof(fullp));
-    fprintf(stderr, "appending to ... [%s]\n", path);
+    fprintf(stderr, "merging to ... [%s]\n", fullp);
 
     fd = open(fullp, O_APPEND | O_RDWR | O_CREAT, g_config_default_mode);
     if (fd == -1) {
@@ -343,13 +344,16 @@ handler_init(sc_message* msg, sc_connection* conn)
     unsigned char *mhash;
     size_t mhash_size;
     struct stat st;
+    char* p;
 
     sc_message* ok = NULL;
-    sc_channel* channel = sc_channel_new(NULL, conn);
+    sc_channel* channel = NULL;
 
-    channel->filename = malloc(msg->length + 1);
-    memcpy(channel->filename, msg->content, msg->length);
-    channel->filename[msg->length] = '\0';
+    p = malloc(msg->length + 1);
+    memcpy(p, msg->content, msg->length);
+    p[msg->length] = '\0';
+
+    channel = sc_channel_new(p, conn);
 
     // __mk_path(conn->remote_addr, channel->filename, path, sizeof(path));
 
