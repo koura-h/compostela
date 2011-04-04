@@ -34,6 +34,7 @@ const char* g_config_log_dir = "/var/log/compostela";
 typedef struct _sc_channel {
     int id;
     char *filename;
+    char *__filename_fullpath;
     //
     struct _sc_connection* connection;
     //
@@ -64,6 +65,7 @@ sc_channel_new(const char* fname, sc_connection* conn)
     if (channel) {
         if (fname) {
 	    channel->filename = strdup(fname);
+	    channel->__filename_fullpath = strdup_pathcat(g_config_log_dir, conn->remote_addr, fname);
 	}
 	channel->connection = conn;
     }
@@ -74,6 +76,7 @@ void
 sc_channel_destroy(sc_channel* channel)
 {
     fprintf(stderr, "%s(%d) %s\n", __FILE__, __LINE__, __func__);
+    free(channel->__filename_fullpath);
     free(channel->filename);
     free(channel);
     fprintf(stderr, "%s(%d) %s\n", __FILE__, __LINE__, __func__);
