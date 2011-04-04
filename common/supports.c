@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
+#include <stdarg.h>
 
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -32,6 +33,29 @@ strdup_pathcat(const char* p0, const char* p1)
     strcat(p, p1);
 
     return p;
+}
+
+char*
+pathcat(const char* p, ...)
+{
+    va_list ap;
+
+    char *ret, buf[PATH_MAX];
+    char *q, *s;
+
+    size_t n = strlen(p);
+
+    strncpy(buf, p, n);
+    q = buf + n - 1;
+    va_start(ap, p);
+    while (q < buf + sizeof(buf)) {
+	if (*q != '/') {
+	    *q = '/';
+	}
+        s = va_arg(ap, char*);
+	strncat(q, s, buf + sizeof(buf) - q);
+    }
+    va_end(ap);
 }
 
 
