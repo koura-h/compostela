@@ -337,6 +337,7 @@ handler_init(sc_message* msg, sc_connection* conn)
 {
     int n;
     int64_t stlen = 0;
+    int32_t slen = msg->length - sizeof(int32_t);
 
     // char path[PATH_MAX];
     unsigned char *mhash = NULL;
@@ -348,10 +349,10 @@ handler_init(sc_message* msg, sc_connection* conn)
     sc_message* ok = NULL;
     sc_channel* channel = NULL;
 
-    p = malloc(msg->length + 1);
+    p = malloc(slen + 1);
     attr = ntohl(*(int32_t*)msg->content);
-    memcpy(p, msg->content + sizeof(int32_t), msg->length);
-    p[msg->length] = '\0';
+    memcpy(p, msg->content + sizeof(int32_t), slen);
+    p[slen] = '\0';
 
     channel = sc_channel_new(p, conn);
 

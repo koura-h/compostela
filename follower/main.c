@@ -99,13 +99,13 @@ int
 sc_follow_context_sync_file(sc_follow_context *cxt)
 {
     sc_message *msg, *resp;
-    size_t n = sizeof(int32_t) + strlen(cxt->filename);
+    size_t n = strlen(cxt->filename);
     int64_t stlen = 0;
     int32_t attr = 0, len = 0;
 
     fprintf(stderr, ">>> INIT: started\n");
 
-    msg = sc_message_new(n);
+    msg = sc_message_new(n + sizeof(int32_t));
     if (!msg) {
         return -1;
     }
@@ -116,7 +116,7 @@ sc_follow_context_sync_file(sc_follow_context *cxt)
 
     msg->code    = htons(SCM_MSG_INIT);
     msg->channel = htons(0);
-    msg->length  = htonl(n);
+    msg->length  = htonl(n + sizeof(int32_t));
     *(int32_t*)(&msg->content) = htonl(attr);
     memcpy(msg->content + sizeof(int32_t), cxt->filename, n);
 
