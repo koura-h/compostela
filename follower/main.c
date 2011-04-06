@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <assert.h>
+#include <getopt.h>
 
 #include <byteswap.h>
 
@@ -18,7 +19,9 @@
 #include "supports.h"
 
 enum { BUFSIZE = 8196 };
-enum { PORT = 8187 };
+
+char* g_config_server_addr = NULL;
+int g_config_server_port = 8187;
 
 typedef struct _sc_follow_context {
     char *filename;
@@ -458,38 +461,44 @@ main(int argc, char** argv)
     sc_follow_context *cxt = NULL;
     sc_aggregator_connection *conn = NULL;
 
-    const char* servhost = (argc > 1 ? argv[1] : "log");
-    const char* fname0   = (argc > 2 ? argv[2] : "_default_");
-    const char* fname1   = (argc > 3 ? argv[3] : "_default_");
-
-    int ret;
+    int ret, ch, i;
     sc_message *msg, *resp;
 
-    conn = sc_aggregator_connection_new(servhost, PORT);
+    struct option long_opts[] = {
+        { "server-port", 2, NULL, 0 },
+        { "server-addr", 2, NULL, 0 },
+    };
+
+    while ((ch = getopt_long(argc, argv, "p:s:", long_opts, NULL)) != -1) {
+        switch (ch) {
+        case 'p':
+            g_config_server_port = strtoul(optarg, NULL, 10);
+            break;
+        case 's':
+            g_config_server_addr = strdup(optarg);
+            break;
+        }
+    }
+    argc -= optind;
+    argv += optind;
+
+    if (!g_config_server_addr) {
+        fprintf(stderr, "usage: server address is not assigned.\n");
+        exit(1);
+    }
+
+    conn = sc_aggregator_connection_new(g_config_server_addr, g_config_server_port);
     sc_aggregator_connection_open(conn);
     fprintf(stderr, "conn = %p\n", conn);
 
-    cxt = sc_follow_context_new(fname0, conn);
-    sc_follow_context_open_file(cxt, 0);
-    fprintf(stderr, "cxt0 = %p\n", cxt);
-
-    sc_follow_context_sync_file(cxt);
-
-    g_context_list = az_list_add(g_context_list, cxt);
-
-    if (argc > 3) {
-        cxt = sc_follow_context_new(fname1, conn);
+    for (i = 0; i < argc; i++) {
+        cxt = sc_follow_context_new(argv[i], conn);
         sc_follow_context_open_file(cxt, 0);
-        fprintf(stderr, "cxt1 = %p\n", cxt);
 
         sc_follow_context_sync_file(cxt);
 
         g_context_list = az_list_add(g_context_list, cxt);
     }
-
-    // sc_follow_context_sync_file(cxt1, conn);
-
-    // _add_file(epfd, cxt0->fd);
 
     msg = sc_message_new(BUFSIZE);
     while (1) {

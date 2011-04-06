@@ -18,18 +18,16 @@
 #include "supports.h"
 #include "azlist.h"
 
-enum { PORT = 8187 };
-
 enum { MAX_SOCKETS = 10 };
 enum { MAX_EVENTS = 10 };
 
 enum { BUFSIZE = 2048 };
 
-
 int g_config_default_mode = 0644;
+char* g_config_listen_addr = NULL;
+char* g_config_listen_port_str = "8187";
 
-// const char* g_config_log_dir = "/var/log/compostela";
-const char* g_config_log_dir = ".";
+const char* g_config_output_dir = ".";
 
 ////////////////////////////////////////
 
@@ -76,7 +74,7 @@ sc_channel_new(const char* fname, sc_connection* conn)
     if (channel) {
         if (fname) {
 	    channel->filename = strdup(fname);
-	    channel->__filename_fullpath = pathcat(g_config_log_dir, conn->remote_addr, fname, NULL);
+	    channel->__filename_fullpath = pathcat(g_config_output_dir, conn->remote_addr, fname, NULL);
 	    fprintf(stderr, "__filename_fullpath = %s\n", channel->__filename_fullpath);
 	}
 	channel->connection = conn;
@@ -261,7 +259,7 @@ _do_merge_file(const char* host, const char* path, const char *data, size_t len)
     int fd;
     char fullp[PATH_MAX];
 
-    __mk_path(g_config_log_dir, path, fullp, sizeof(fullp));
+    __mk_path(g_config_output_dir, path, fullp, sizeof(fullp));
     fprintf(stderr, "merging to ... [%s]\n", fullp);
 
     fd = open(fullp, O_APPEND | O_RDWR | O_CREAT, g_config_default_mode);
@@ -612,19 +610,27 @@ main(int argc, char** argv)
     int err;
     int s[MAX_SOCKETS], nsock, i, c;
 
-    char buf[2048], sport[NI_MAXSERV];
+    char buf[2048];
     ssize_t cb, n;
 
     int yes = 1, ch;
 
     struct option long_opts[] = {
-        { "log-dir", 2, NULL, 0 },
+        { "output-dir", 2, NULL, 0 },
+	{ "listen-port", 2, NULL, 0 },
+	{ "listen-addr", 2, NULL, 0 },
     };
 
-    while ((ch = getopt_long(argc, argv, "L:", long_opts, NULL)) != -1) {
+    while ((ch = getopt_long(argc, argv, "o:p:L:", long_opts, NULL)) != -1) {
         switch (ch) {
+	case 'o':
+	    g_config_output_dir = strdup(optarg);
+	    break;
+	case 'p':
+	    g_config_listen_port_str = strdup(optarg);
+	    break;
 	case 'L':
-	    g_config_log_dir = strdup(optarg);
+	    g_config_listen_addr = strdup(optarg);
 	    break;
 	}
     }
@@ -632,14 +638,12 @@ main(int argc, char** argv)
     argv += optind;
 
     //
-
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = PF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
 
-    snprintf(sport, sizeof(sport), "%d", PORT);
-    err = getaddrinfo(NULL, sport, &hints, &res0);
+    err = getaddrinfo(NULL, g_config_listen_port_str, &hints, &res0);
     if (err) {
         return -1;
     }
