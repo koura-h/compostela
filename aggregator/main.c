@@ -339,28 +339,35 @@ handler_init(sc_message* msg, sc_connection* conn)
     int64_t stlen = 0;
 
     // char path[PATH_MAX];
-    unsigned char *mhash;
-    size_t mhash_size;
+    unsigned char *mhash = NULL;
+    size_t mhash_size = 0;
     struct stat st;
     char* p;
+    int32_t attr = 0;
 
     sc_message* ok = NULL;
     sc_channel* channel = NULL;
 
     p = malloc(msg->length + 1);
-    memcpy(p, msg->content, msg->length);
+    attr = ntohl(*(int32_t*)msg->content);
+    memcpy(p, msg->content + sizeof(int32_t), msg->length);
     p[msg->length] = '\0';
 
     channel = sc_channel_new(p, conn);
 
     // __mk_path(conn->remote_addr, channel->filename, path, sizeof(path));
 
-    memset(&st, 0, sizeof(st));
-    stat(channel->__filename_fullpath, &st);
-    mhash_with_size(channel->__filename_fullpath, st.st_size, &mhash, &mhash_size);
+    if (attr & 0x80000000) {
+        memset(&st, 0, sizeof(st));
+        stat(channel->__filename_fullpath, &st);
+        mhash_with_size(channel->__filename_fullpath, st.st_size, &mhash, &mhash_size);
+        stlen = st.st_size;
 
-    fprintf(stderr, "channel->filename = %s\n", channel->filename);
-    fprintf(stderr, "conn->remote_addr = %s\n", conn->remote_addr);
+	dump_mhash(mhash, mhash_size);
+
+        fprintf(stderr, "channel->filename = %s\n", channel->filename);
+        fprintf(stderr, "conn->remote_addr = %s\n", conn->remote_addr);
+    }
 
     sc_connection_register_channel(conn, channel);
 
@@ -369,14 +376,12 @@ handler_init(sc_message* msg, sc_connection* conn)
     ok->code    = htons(SCM_RESP_OK);
     ok->channel = htons(channel->id);
     ok->length  = htonl(sizeof(stlen) + mhash_size);
-    stlen = st.st_size;
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     stlen = bswap_64(stlen);
 #endif
     memcpy(ok->content, &stlen, sizeof(stlen));
     if (mhash) {
         memcpy(ok->content + sizeof(stlen), mhash, mhash_size);
-	dump_mhash(mhash, mhash_size);
     }
     // haha
     n = sendall(conn->socket, ok, offsetof(sc_message, content) + sizeof(stlen) + mhash_size, 0);

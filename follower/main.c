@@ -28,6 +28,7 @@ typedef struct _sc_follow_context {
     int channel;
     off_t current_position;
     off_t filesize;
+    mode_t mode;
     int _fd;
     //
     az_buffer* buffer;
@@ -98,9 +99,9 @@ int
 sc_follow_context_sync_file(sc_follow_context *cxt)
 {
     sc_message *msg, *resp;
-    size_t n = strlen(cxt->filename);
+    size_t n = sizeof(int32_t) + strlen(cxt->filename);
     int64_t stlen = 0;
-    int32_t len = 0;
+    int32_t attr = 0, len = 0;
 
     fprintf(stderr, ">>> INIT: started\n");
 
@@ -109,10 +110,15 @@ sc_follow_context_sync_file(sc_follow_context *cxt)
         return -1;
     }
 
+    if (S_ISREG(cxt->mode)) {
+        attr = 1 << 31;
+    }
+
     msg->code    = htons(SCM_MSG_INIT);
     msg->channel = htons(0);
     msg->length  = htonl(n);
-    memcpy(msg->content, cxt->filename, n);
+    *(int32_t*)(&resp->content) = htonl(attr);
+    memcpy(msg->content + sizeof(int32_t), cxt->filename, n);
 
     // send_message
     if (sc_aggregator_connection_send_message(cxt->connection, msg) != 0) {
@@ -124,7 +130,7 @@ sc_follow_context_sync_file(sc_follow_context *cxt)
     }
 
     if (ntohs(resp->code) != SCM_RESP_OK) {
-        fprintf(stderr, ">>> INIT: failed\n");
+        fprintf(stderr, ">>> INIT: failed (code=%d)\n", ntohs(resp->code));
         return -4;
     }
     cxt->channel = htons(resp->channel);
@@ -263,17 +269,17 @@ sc_follow_context_new(const char* fname, sc_aggregator_connection* conn)
 int
 sc_follow_context_open_file(sc_follow_context* cxt, int use_lseek)
 {
-    // struct stat st;
+    struct stat st;
 
     cxt->_fd = open(cxt->filename, O_RDONLY);
     if (cxt->_fd < 0) {
         return -1;
     }
 
-/*
     fstat(cxt->_fd, &st);
     cxt->filesize = st.st_size;
-    */
+    cxt->mode = st.st_mode;
+
     if (use_lseek) {
         lseek(cxt->_fd, cxt->current_position, SEEK_SET);
     }
