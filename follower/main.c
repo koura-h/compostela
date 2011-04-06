@@ -111,13 +111,13 @@ sc_follow_context_sync_file(sc_follow_context *cxt)
     }
 
     if (S_ISREG(cxt->mode)) {
-        attr = 1 << 31;
+        attr = 0x80000000;
     }
 
     msg->code    = htons(SCM_MSG_INIT);
     msg->channel = htons(0);
     msg->length  = htonl(n);
-    *(int32_t*)(&resp->content) = htonl(attr);
+    *(int32_t*)(&msg->content) = htonl(attr);
     memcpy(msg->content + sizeof(int32_t), cxt->filename, n);
 
     // send_message
