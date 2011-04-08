@@ -1,0 +1,7 @@
+#!/bin/sh
+
+FNAMES=$*
+
+touch $FNAMES
+
+echo comfollower -s $COMPOSTELA_SERVER_ADDR $*
