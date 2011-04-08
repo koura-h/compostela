@@ -9,6 +9,7 @@
 #include <netdb.h>
 #include <assert.h>
 #include <getopt.h>
+#include <libgen.h>
 
 #include <byteswap.h>
 
@@ -32,6 +33,8 @@ typedef struct _sc_follow_context {
     int _fd;
     //
     az_buffer* buffer;
+    //
+    char *displayname;
     //
     struct _sc_aggregator_connection *connection;
 } sc_follow_context;
@@ -99,7 +102,7 @@ int
 sc_follow_context_sync_file(sc_follow_context *cxt)
 {
     sc_message *msg, *resp;
-    size_t n = strlen(cxt->filename);
+    size_t n = strlen(cxt->displayname);
     int64_t stlen = 0;
     int32_t attr = 0, len = 0;
 
@@ -118,7 +121,7 @@ sc_follow_context_sync_file(sc_follow_context *cxt)
     msg->channel = htons(0);
     msg->length  = htonl(n + sizeof(int32_t));
     *(int32_t*)(&msg->content) = htonl(attr);
-    memcpy(msg->content + sizeof(int32_t), cxt->filename, n);
+    memcpy(msg->content + sizeof(int32_t), cxt->displayname, n);
 
     // send_message
     if (sc_aggregator_connection_send_message(cxt->connection, msg) != 0) {
@@ -242,7 +245,7 @@ sc_aggregator_connection_destroy(sc_aggregator_connection* conn)
 ////////////////////
 
 sc_follow_context*
-sc_follow_context_new(const char* fname, sc_aggregator_connection* conn)
+sc_follow_context_new(const char* fname, const char* dispname, sc_aggregator_connection* conn)
 {
     sc_follow_context* cxt = NULL;
 
@@ -258,6 +261,13 @@ sc_follow_context_new(const char* fname, sc_aggregator_connection* conn)
 	    free(cxt);
 	    cxt = NULL;
 	}
+
+        cxt->displayname = strdup((dispname ? dispname : fname));
+        if (!cxt->displayname) {
+            free(cxt->filename);
+            free(cxt);
+            cxt = NULL;
+        }
         // we should read control files for 'fname'
 
         cxt->buffer = az_buffer_new(BUFSIZE);
@@ -454,6 +464,7 @@ sc_follow_context_destroy(sc_follow_context* cxt)
 {
     free(cxt->buffer);
     free(cxt->filename);
+    free(cxt->displayname);
     free(cxt);
 }
 
@@ -498,7 +509,16 @@ main(int argc, char** argv)
     fprintf(stderr, "conn = %p\n", conn);
 
     for (i = 0; i < argc; i++) {
-        cxt = sc_follow_context_new(argv[i], conn);
+        char *fname = argv[i], *dispname = argv[i];
+
+        // haha
+        if (dispname[0] == '.' || dispname[0] == '/') {
+            dispname = basename(dispname);
+        }
+        fprintf(stderr, "fname = [%s]\n", fname);
+        fprintf(stderr, "dispname = [%s]\n", dispname);
+
+        cxt = sc_follow_context_new(fname, dispname, conn);
         sc_follow_context_open_file(cxt, 0);
 
         sc_follow_context_sync_file(cxt);
