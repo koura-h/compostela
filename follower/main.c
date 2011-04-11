@@ -1,6 +1,7 @@
 /* $Id$ */
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
@@ -282,19 +283,15 @@ sc_follow_context_open_file(sc_follow_context* cxt, int use_lseek)
     struct stat st;
     int flags;
 
-    cxt->_fd = open(cxt->filename, O_RDONLY);
+    cxt->_fd = open(cxt->filename, O_RDONLY | O_NONBLOCK);
     if (cxt->_fd < 0) {
+        fprintf(stderr, ">>> %s: error (%d)\n", __FUNCTION__, errno);
         return -1;
     }
 
     fstat(cxt->_fd, &st);
     cxt->filesize = st.st_size;
     cxt->mode = st.st_mode;
-
-    if (S_ISFIFO(cxt->mode)) {
-        flags = fcntl(cxt->_fd, F_GETFL);
-        fcntl(cxt->_fd, F_SETFL, flags | O_NONBLOCK);
-    }
 
     if (use_lseek) {
         lseek(cxt->_fd, cxt->current_position, SEEK_SET);
@@ -371,6 +368,9 @@ _sc_follow_context_read_line(sc_follow_context* cxt, char* dst, size_t dsize)
 	cxt->buffer->used = 0;
         n = az_buffer_fetch_file(cxt->buffer, cxt->_fd, az_buffer_unused_bytes(cxt->buffer));
 	if (n <= 0) {
+            if (errno == EAGAIN) { // for read()
+                return 0;
+            }
 	    return n;
 	}
     }
@@ -384,6 +384,9 @@ _sc_follow_context_read_line(sc_follow_context* cxt, char* dst, size_t dsize)
 	cxt->buffer->used = 0;
 	n = az_buffer_fetch_file(cxt->buffer, cxt->_fd, az_buffer_unused_bytes(cxt->buffer));
 	if (n <= 0) {
+            if (errno == EAGAIN) { // for read()
+                n = 0;
+            }
 	    m = az_buffer_push_back(cxt->buffer, p, dst + dsize - p);
 	    fprintf(stderr, "cxt = %p (at %s)", cxt, cxt->filename);
 	    assert(m == 0);
@@ -536,10 +539,12 @@ main(int argc, char** argv)
     while (1) {
         az_list* li;
 	int sl = 1;
+        cxt = NULL;
 
 	for (li = g_context_list; li; li = li->next) {
             resp = NULL;
-            ret = sc_follow_context_run(li->object, msg, &resp);
+            cxt = li->object;
+            ret = sc_follow_context_run(cxt, msg, &resp);
 	    if (ret == -1001) {
 	        sl = 1;
 	    } else if (ret == -1) {
