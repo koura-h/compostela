@@ -39,8 +39,24 @@ AC_CHECK_FUNCS([memchr memmove memset mkdir socket strchr strdup strtoul])
 
 AM_CONDITIONAL(ENABLE_TESTS, test "$ac_cv_lib_cunit_CU_initialize_registry" = yes)
 
+patheval()
+{
+        OLD=$1
+        NEW=`eval echo $1`
+        while test "x$OLD" != "x$NEW"
+        do
+                OLD=$NEW
+                NEW=`eval echo $OLD`
+        done
+        echo $OLD
+}
+
+
+AC_DEFINE_UNQUOTED(PATH_SYSCONFDIR, "`patheval $sysconfdir`", [sysconfdir])
+
 AC_CONFIG_FILES([Makefile
                  aggregator/Makefile
                  follower/Makefile
-                 tests/Makefile])
+                 tests/Makefile
+])
 AC_OUTPUT
