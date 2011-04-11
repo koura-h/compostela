@@ -280,6 +280,7 @@ int
 sc_follow_context_open_file(sc_follow_context* cxt, int use_lseek)
 {
     struct stat st;
+    int flags;
 
     cxt->_fd = open(cxt->filename, O_RDONLY);
     if (cxt->_fd < 0) {
@@ -289,6 +290,11 @@ sc_follow_context_open_file(sc_follow_context* cxt, int use_lseek)
     fstat(cxt->_fd, &st);
     cxt->filesize = st.st_size;
     cxt->mode = st.st_mode;
+
+    if (S_ISFIFO(cxt->mode)) {
+        flags = fcntl(cxt->_fd, F_GETFL);
+        fcntl(cxt->_fd, F_SETFL, flags | O_NONBLOCK);
+    }
 
     if (use_lseek) {
         lseek(cxt->_fd, cxt->current_position, SEEK_SET);
