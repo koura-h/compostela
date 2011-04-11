@@ -1,4 +1,4 @@
-bin_PROGRAMS = compostela
+sbin_PROGRAMS = compostela
 
 INCLUDES = -I$(top_srcdir) -I$(includedir) -I$(top_srcdir)/common/
 

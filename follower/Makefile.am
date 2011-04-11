@@ -1,4 +1,4 @@
-bin_PROGRAMS = comfollower
+sbin_PROGRAMS = comfollower
 
 INCLUDES = -I$(top_srcdir) -I$(includedir) -I$(top_srcdir)/common/
 
