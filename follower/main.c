@@ -416,7 +416,11 @@ sc_follow_context_run(sc_follow_context* cxt, sc_message* msgbuf, sc_message** p
     fprintf(stderr, "context run\n");
 
     if (cxt->_fd <= 0) {
-        sc_follow_context_open_file(cxt, 1);
+        // sc_follow_context_open_file(cxt, 1);
+        if (sc_follow_context_open_file(cxt, 0) != 0) {
+            fprintf(stderr, "sc_follow_context_run: not opened yet => [%s]\n", cxt->filename);
+            return 0;
+        }
         sc_follow_context_sync_file(cxt);
     }
 
@@ -481,7 +485,23 @@ sc_follow_context_destroy(sc_follow_context* cxt)
 
 az_list* g_context_list;
 
-const char *DEFAULT_CONF = PATH_SYSCONFDIR "/comfollwer.conf";
+const char *DEFAULT_CONF = PATH_SYSCONFDIR "/comfollower.conf";
+
+double
+get_seconds_left_in_today()
+{
+    struct tm tm0, tm1;
+    time_t t, t1;
+
+    time(&t);
+    localtime_r(&t, &tm0);
+    t1 = t + 86400;
+    localtime_r(&t1, &tm1);
+    tm1.tm_hour = tm1.tm_min = tm1.tm_sec = 0;
+    t1 = mktime(&tm1);
+
+    return difftime(t1, t);
+}
 
 int
 main(int argc, char** argv)
@@ -494,9 +514,7 @@ main(int argc, char** argv)
     int ret, ch, i;
     sc_message *msg, *resp;
     char *conf = NULL;
-    sc_config_pattern_entry *pe;
-    struct tm tm;
-    time_t t;
+    double secs_left = 0;
 
     struct option long_opts[] = {
         { "config", 2, NULL, 0 },
@@ -532,53 +550,8 @@ main(int argc, char** argv)
     sc_aggregator_connection_open(conn);
     fprintf(stderr, "conn = %p\n", conn);
 
-#if 0
-    for (i = 0; i < argc; i++) {
-        char *fname = argv[i], *dispname = argv[i];
-
-        // haha
-        if (dispname[0] == '.' || dispname[0] == '/') {
-            dispname = basename(dispname);
-        }
-        fprintf(stderr, "fname = [%s]\n", fname);
-        fprintf(stderr, "dispname = [%s]\n", dispname);
-
-        cxt = sc_follow_context_new(fname, dispname, conn);
-        sc_follow_context_open_file(cxt, 0);
-
-        sc_follow_context_sync_file(cxt);
-
-        g_context_list = az_list_add(g_context_list, cxt);
-    }
-#endif
-    time(&t);
-    localtime_r(&t, &tm);
-    for (pe = g_config_patterns; pe; pe = pe->_next) {
-        char fn[PATH_MAX], dn[PATH_MAX];
-
-        if (pe->rotate && strchr(pe->path, '%')) {
-	    strftime(fn, sizeof(fn), pe->path, &tm);
-	} else {
-	    strncpy(fn, pe->path, sizeof(fn));
-	}
-
-	if (pe->displayName) {
-	    if (pe->rotate && strchr(pe->displayName, '%')) {
-	        strftime(dn, sizeof(dn), pe->displayName, &tm);
-	    } else {
-	        strncpy(dn, pe->displayName, sizeof(dn));
-	    }
-	} else {
-	    strcpy(dn, fn);
-	}
-
-        cxt = sc_follow_context_new(fn, dn, conn);
-        sc_follow_context_open_file(cxt, 0);
-
-        sc_follow_context_sync_file(cxt);
-
-        g_context_list = az_list_add(g_context_list, cxt);
-    }
+    do_rotate(conn);
+    secs_left = get_seconds_left_in_today();
 
     msg = sc_message_new(BUFSIZE);
     while (1) {
@@ -608,4 +581,61 @@ main(int argc, char** argv)
 	}
     }
     sc_message_destroy(msg);
+}
+
+int
+do_rotate(sc_aggregator_connection* conn)
+{
+    sc_config_pattern_entry *pe;
+    struct tm tm;
+    time_t t;
+    sc_follow_context* cxt = NULL;
+    int not_found;
+    az_list *li;
+
+    time(&t);
+    localtime_r(&t, &tm);
+    for (pe = g_config_patterns; pe; pe = pe->_next) {
+        char fn[PATH_MAX], dn[PATH_MAX];
+
+        if (pe->rotate && strchr(pe->path, '%')) {
+	    strftime(fn, sizeof(fn), pe->path, &tm);
+	} else {
+	    strncpy(fn, pe->path, sizeof(fn));
+	}
+
+	if (pe->displayName) {
+	    if (pe->rotate && strchr(pe->displayName, '%')) {
+	        strftime(dn, sizeof(dn), pe->displayName, &tm);
+	    } else {
+	        strncpy(dn, pe->displayName, sizeof(dn));
+	    }
+	} else {
+	    strcpy(dn, basename(fn));
+	}
+        fprintf(stderr, "fname = [%s]\n", fn);
+        fprintf(stderr, "dispname = [%s]\n", dn);
+
+        not_found = 1;
+        for (li = g_context_list; not_found && li; li = li->next) {
+            cxt = li->object;
+            if (strcmp(cxt->filename, fn) == 0) {
+                // ok, I'm already following it.
+                not_found = 0;
+                fprintf(stderr, "yeah, file(%s) has been already following now.\n");
+                break;
+            }
+        }
+
+        if (not_found) {
+            cxt = sc_follow_context_new(fn, dn, conn);
+#if 0
+            sc_follow_context_open_file(cxt, 0);
+
+            sc_follow_context_sync_file(cxt);
+#endif
+
+            g_context_list = az_list_add(g_context_list, cxt);
+        }
+    }
 }

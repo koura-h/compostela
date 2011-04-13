@@ -9,6 +9,7 @@
 char* g_config_server_address = NULL;
 int g_config_server_port = 0;
 sc_config_pattern_entry* g_config_patterns = NULL;
+int g_config_waiting_seconds = 0;
 
 /*
 int
@@ -27,16 +28,16 @@ _pick_mapping(yaml_parser_t* parser, int lv)
 
             switch (event.type) {
             case YAML_SCALAR_EVENT:
-                printf("%d) event.data.scalar.value = [%s]\n",
+                fprintf(stderr, "%d) event.data.scalar.value = [%s]\n",
                 lv, event.data.scalar.value);
                 break;
             case YAML_SEQUENCE_START_EVENT:
-                // printf("event.data.sequence_start.anchor = [%s] .tag = [%s]\n",
+                // fprintf(stderr, "event.data.sequence_start.anchor = [%s] .tag = [%s]\n",
                 // event.data.sequence_start.anchor, event.data.sequence_start.tag);
                 _pick_sequence(parser, lv + 1);
                 break;
             case YAML_MAPPING_START_EVENT:
-                printf("%d) event.data.mapping_start.anchor = [%s] .tag = [%s]\n",
+                fprintf(stderr, "%d) event.data.mapping_start.anchor = [%s] .tag = [%s]\n",
                 lv, event.data.mapping_start.anchor, event.data.mapping_start.tag);
                 _pick_mapping(parser, lv + 1);
                 break;
@@ -45,7 +46,7 @@ _pick_mapping(yaml_parser_t* parser, int lv)
                 return 0;
                 break;
             default:
-                printf("event.type = %d\n", event.type);
+                fprintf(stderr, "event.type = %d\n", event.type);
                 break;
             }
             done = (event.type == YAML_STREAM_END_EVENT);
@@ -95,7 +96,7 @@ _pick_pattern_entry(yaml_parser_t* parser)
             return ret;
 
         default:
-            printf("event.type = %d\n", event.type);
+            fprintf(stderr, "event.type = %d\n", event.type);
             break;
         }
 
@@ -122,11 +123,11 @@ _pick_patterns(yaml_parser_t* parser)
         switch (event.type) {
         /*
         case YAML_SCALAR_EVENT:
-            printf("%d) event.data.scalar.value = [%s]\n",
+            fprintf(stderr, "%d) event.data.scalar.value = [%s]\n",
             lv, event.data.scalar.value);
             break;
         case YAML_SEQUENCE_START_EVENT:
-            // printf("event.data.sequence_start.anchor = [%s] .tag = [%s]\n",
+            // fprintf(stderr, "event.data.sequence_start.anchor = [%s] .tag = [%s]\n",
             // event.data.sequence_start.anchor, event.data.sequence_start.tag);
             _pick_sequence(parser, lv + 1);
             break;
@@ -150,7 +151,7 @@ _pick_patterns(yaml_parser_t* parser)
             return 0;
             */
         default:
-            printf("%s: event.type = %d\n", __FUNCTION__, event.type);
+            fprintf(stderr, "%s: event.type = %d\n", __FUNCTION__, event.type);
             break;
         }
 
@@ -195,6 +196,15 @@ _pick_global(yaml_parser_t* parser)
 
             g_config_server_port = strtoul(evvalue.data.scalar.value, NULL, 10);
             yaml_event_delete(&evvalue);
+        } else if (strcmp(event.data.scalar.value, "waiting-seconds") == 0 ||
+                   strcmp(event.data.scalar.value, "waiting") == 0) {
+            if (!yaml_parser_parse(parser, &evvalue)) {
+                error = 1;
+                break;
+            }
+
+            g_config_waiting_seconds = strtoul(evvalue.data.scalar.value, NULL, 10);
+            yaml_event_delete(&evvalue);
         } else if (strcmp(event.data.scalar.value, "patterns") == 0) {
             g_config_patterns = _pick_patterns(parser);
         }
@@ -202,7 +212,7 @@ _pick_global(yaml_parser_t* parser)
         switch (evvalue.type) {
             /*
         case YAML_MAPPING_START_EVENT:
-            printf("%d) event.data.mapping_start.anchor = [%s] .tag = [%s]\n",
+            fprintf(stderr, "%d) event.data.mapping_start.anchor = [%s] .tag = [%s]\n",
             lv, event.data.mapping_start.anchor, event.data.mapping_start.tag);
             _pick_mapping(parser, lv + 1);
             break;
@@ -212,7 +222,7 @@ _pick_global(yaml_parser_t* parser)
         */
 
         default:
-            printf("event.type = %d\n", event.type);
+            fprintf(stderr, "event.type = %d\n", event.type);
             break;
         }
 
@@ -246,20 +256,20 @@ load_config_file(const char* fname)
 
         switch (event.type) {
         case YAML_SCALAR_EVENT:
-            printf("event.data.scalar.value = [%s]\n",
+            fprintf(stderr, "event.data.scalar.value = [%s]\n",
             event.data.scalar.value);
             break;
         case YAML_SEQUENCE_START_EVENT:
-            printf("event.data.sequence_start.anchor = [%s] .tag = [%s]\n",
+            fprintf(stderr, "event.data.sequence_start.anchor = [%s] .tag = [%s]\n",
             event.data.sequence_start.anchor, event.data.sequence_start.tag);
             break;
         case YAML_MAPPING_START_EVENT:
-            printf("event.data.mapping_start.anchor = [%s] .tag = [%s]\n",
+            fprintf(stderr, "event.data.mapping_start.anchor = [%s] .tag = [%s]\n",
             event.data.mapping_start.anchor, event.data.mapping_start.tag);
             _pick_global(&parser);
             break;
         default:
-            printf("event.type = %d\n", event.type);
+            fprintf(stderr, "event.type = %d\n", event.type);
             break;
         }
         done = (event.type == YAML_STREAM_END_EVENT);
@@ -271,7 +281,7 @@ load_config_file(const char* fname)
 
     fclose(file);
 
-    printf("%s\n", (error ? "FAILURE" : "SUCCESS"));
+    fprintf(stderr, "%s\n", (error ? "FAILURE" : "SUCCESS"));
 
     return 0;
 }
