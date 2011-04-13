@@ -11,7 +11,7 @@
 #include <assert.h>
 #include <getopt.h>
 #include <libgen.h>
-
+#include <time.h>
 #include <byteswap.h>
 
 #include "azlist.h"
@@ -20,10 +20,12 @@
 #include "scmessage.h"
 #include "supports.h"
 
+#include "appconfig.h"
+#include "config.h"
+
+
 enum { BUFSIZE = 8196 };
 
-char* g_config_server_addr = NULL;
-int g_config_server_port = 8187;
 
 typedef struct _sc_follow_context {
     char *filename;
@@ -479,6 +481,8 @@ sc_follow_context_destroy(sc_follow_context* cxt)
 
 az_list* g_context_list;
 
+const char *DEFAULT_CONF = PATH_SYSCONFDIR "/comfollwer.conf";
+
 int
 main(int argc, char** argv)
 {
@@ -489,34 +493,45 @@ main(int argc, char** argv)
 
     int ret, ch, i;
     sc_message *msg, *resp;
+    char *conf = NULL;
+    sc_config_pattern_entry *pe;
+    struct tm tm;
 
     struct option long_opts[] = {
+        { "config", 2, NULL, 0 },
         { "server-port", 2, NULL, 0 },
         { "server-addr", 2, NULL, 0 },
     };
 
     while ((ch = getopt_long(argc, argv, "p:s:", long_opts, NULL)) != -1) {
         switch (ch) {
+	case 'c':
+	    conf = strdup(optarg);
+	    break;
         case 'p':
             g_config_server_port = strtoul(optarg, NULL, 10);
             break;
         case 's':
-            g_config_server_addr = strdup(optarg);
+            g_config_server_address = strdup(optarg);
             break;
         }
     }
     argc -= optind;
     argv += optind;
 
-    if (!g_config_server_addr) {
+    load_config_file((conf ? conf : DEFAULT_CONF));
+    free(conf);
+
+    if (!g_config_server_address) {
         fprintf(stderr, "usage: server address is not assigned.\n");
         exit(1);
     }
 
-    conn = sc_aggregator_connection_new(g_config_server_addr, g_config_server_port);
+    conn = sc_aggregator_connection_new(g_config_server_address, g_config_server_port);
     sc_aggregator_connection_open(conn);
     fprintf(stderr, "conn = %p\n", conn);
 
+#if 0
     for (i = 0; i < argc; i++) {
         char *fname = argv[i], *dispname = argv[i];
 
@@ -528,6 +543,34 @@ main(int argc, char** argv)
         fprintf(stderr, "dispname = [%s]\n", dispname);
 
         cxt = sc_follow_context_new(fname, dispname, conn);
+        sc_follow_context_open_file(cxt, 0);
+
+        sc_follow_context_sync_file(cxt);
+
+        g_context_list = az_list_add(g_context_list, cxt);
+    }
+#endif
+    localtime(&tm);
+    for (pe = g_config_patterns; pe; pe = pe->_next) {
+        char fn[PATH_MAX], dn[PATH_MAX];
+
+        if (pe->rotate && strchr(pe->path, '%')) {
+	    strftime(fn, sizeof(fn), pe->path, &tm);
+	} else {
+	    strncpy(fn, pe->path, sizeof(fn));
+	}
+
+	if (pe->displayName) {
+	    if (pe->rotate && strchr(pe->displayName, '%')) {
+	        strftime(dn, sizeof(dn), pe->displayName, &tm);
+	    } else {
+	        strncpy(dn, pe->displayName, sizeof(dn));
+	    }
+	} else {
+	    strcpy(dn, fn);
+	}
+
+        cxt = sc_follow_context_new(fn, dn, conn);
         sc_follow_context_open_file(cxt, 0);
 
         sc_follow_context_sync_file(cxt);

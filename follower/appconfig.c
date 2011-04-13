@@ -6,7 +6,8 @@
 
 #include "appconfig.h"
 
-int g_config_listen_port = 0;
+char* g_config_server_address = NULL;
+int g_config_server_port = 0;
 sc_config_pattern_entry* g_config_patterns = NULL;
 
 /*
@@ -178,13 +179,22 @@ _pick_global(yaml_parser_t* parser)
             break;
         }
 
-        if (strcmp(event.data.scalar.value, "port") == 0) {
+        if (strcmp(event.data.scalar.value, "server") == 0) {
             if (!yaml_parser_parse(parser, &evvalue)) {
                 error = 1;
                 break;
             }
 
-            g_config_listen_port = strtoul(evvalue.data.scalar.value, NULL, 10);
+            g_config_server_address = strdup(evvalue.data.scalar.value);
+            yaml_event_delete(&evvalue);
+        } else if (strcmp(event.data.scalar.value, "port") == 0) {
+            if (!yaml_parser_parse(parser, &evvalue)) {
+                error = 1;
+                break;
+            }
+
+            g_config_server_port = strtoul(evvalue.data.scalar.value, NULL, 10);
+            yaml_event_delete(&evvalue);
         } else if (strcmp(event.data.scalar.value, "patterns") == 0) {
             g_config_patterns = _pick_patterns(parser);
         }
@@ -213,7 +223,7 @@ _pick_global(yaml_parser_t* parser)
 }
 
 int
-parse_config_file(const char* fname)
+load_config_file(const char* fname)
 {
     yaml_parser_t parser;
     yaml_event_t event;
@@ -264,4 +274,24 @@ parse_config_file(const char* fname)
     printf("%s\n", (error ? "FAILURE" : "SUCCESS"));
 
     return 0;
+}
+
+void
+clean_config()
+{
+    sc_config_pattern_entry *e0, *e = g_config_patterns;
+
+    free(g_config_server_address);
+
+    while (e) {
+        e0 = e;
+        e = e->_next;
+
+        free(e0->path);
+        free(e0->displayName);
+        free(e0);
+    }
+
+    g_config_server_address = NULL;
+    g_config_patterns = NULL;
 }

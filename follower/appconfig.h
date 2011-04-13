@@ -2,16 +2,18 @@
 #define __APPCONFIG_H__
 
 typedef struct _sc_config_pattern_entry {
-    const char* path;
-    const char* displayName;
+    char* path;
+    char* displayName;
     int rotate;
     //
     struct _sc_config_pattern_entry *_next;
 } sc_config_pattern_entry;
 
-extern int g_config_listen_port;
+extern char* g_config_server_address;
+extern int g_config_server_port;
 extern sc_config_pattern_entry *g_config_patterns;
 
-extern int parse_config_file(const char* fname);
+extern int load_config_file(const char* fname);
+extern void clean_config();
 
 #endif

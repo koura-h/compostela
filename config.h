@@ -15,10 +15,13 @@
 #define HAVE_INTTYPES_H 1
 
 /* Define to 1 if you have the `cunit' library (-lcunit). */
-/* #undef HAVE_LIBCUNIT */
+#define HAVE_LIBCUNIT 1
 
 /* Define to 1 if you have the `ssl' library (-lssl). */
 #define HAVE_LIBSSL 1
+
+/* Define to 1 if you have the `yaml' library (-lyaml). */
+#define HAVE_LIBYAML 1
 
 /* Define to 1 if your system has a GNU libc compatible `malloc' function, and
    to 0 otherwise. */
@@ -65,11 +68,17 @@
 /* Define to 1 if you have the <stdlib.h> header file. */
 #define HAVE_STDLIB_H 1
 
+/* Define to 1 if you have the `strcasecmp' function. */
+#define HAVE_STRCASECMP 1
+
 /* Define to 1 if you have the `strchr' function. */
 #define HAVE_STRCHR 1
 
 /* Define to 1 if you have the `strdup' function. */
 #define HAVE_STRDUP 1
+
+/* Define to 1 if you have the `strftime' function. */
+#define HAVE_STRFTIME 1
 
 /* Define to 1 if you have the <strings.h> header file. */
 #define HAVE_STRINGS_H 1
@@ -123,10 +132,13 @@
 #define PACKAGE_VERSION "0.1"
 
 /* sysconfdir */
-#define PATH_SYSCONFDIR "/usr/klab/etc"
+#define PATH_SYSCONFDIR "/usr/local/etc"
 
 /* Define to 1 if you have the ANSI C header files. */
 #define STDC_HEADERS 1
+
+/* Define to 1 if your <sys/time.h> declares `struct tm'. */
+/* #undef TM_IN_SYS_TIME */
 
 /* Version number of package */
 #define VERSION "0.1"
