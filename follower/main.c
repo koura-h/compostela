@@ -496,6 +496,7 @@ main(int argc, char** argv)
     char *conf = NULL;
     sc_config_pattern_entry *pe;
     struct tm tm;
+    time_t t;
 
     struct option long_opts[] = {
         { "config", 2, NULL, 0 },
@@ -503,7 +504,7 @@ main(int argc, char** argv)
         { "server-addr", 2, NULL, 0 },
     };
 
-    while ((ch = getopt_long(argc, argv, "p:s:", long_opts, NULL)) != -1) {
+    while ((ch = getopt_long(argc, argv, "c:p:s:", long_opts, NULL)) != -1) {
         switch (ch) {
 	case 'c':
 	    conf = strdup(optarg);
@@ -550,7 +551,8 @@ main(int argc, char** argv)
         g_context_list = az_list_add(g_context_list, cxt);
     }
 #endif
-    localtime(&tm);
+    time(&t);
+    localtime_r(&t, &tm);
     for (pe = g_config_patterns; pe; pe = pe->_next) {
         char fn[PATH_MAX], dn[PATH_MAX];
 

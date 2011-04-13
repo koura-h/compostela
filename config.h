@@ -15,7 +15,7 @@
 #define HAVE_INTTYPES_H 1
 
 /* Define to 1 if you have the `cunit' library (-lcunit). */
-#define HAVE_LIBCUNIT 1
+/* #undef HAVE_LIBCUNIT */
 
 /* Define to 1 if you have the `ssl' library (-lssl). */
 #define HAVE_LIBSSL 1
@@ -132,7 +132,7 @@
 #define PACKAGE_VERSION "0.1"
 
 /* sysconfdir */
-#define PATH_SYSCONFDIR "/usr/local/etc"
+#define PATH_SYSCONFDIR "/usr/klab/etc/compostela"
 
 /* Define to 1 if you have the ANSI C header files. */
 #define STDC_HEADERS 1
