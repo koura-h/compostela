@@ -5,6 +5,7 @@
 #include <string.h>
 #include <errno.h>
 #include <stdarg.h>
+#include <signal.h>
 
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -159,3 +160,23 @@ dump_mhash(const unsigned char* mhash, size_t mhash_size)
     return 0;
 }
 
+////
+
+void
+handler_sigpipe(int sig, siginfo_t* sinfo, void* ptr)
+{
+    fprintf(stderr, ">>> SIGPIPE raised!\n");
+}
+
+int
+set_sigpipe_handler()
+{
+    struct sigaction sa = {
+        .sa_sigaction = handler_sigpipe,
+        .sa_flags = SA_RESTART | SA_SIGINFO,
+    };
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGPIPE, &sa, NULL);
+
+    return 0;
+}

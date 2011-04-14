@@ -23,6 +23,8 @@ mhash_with_size(const char* fpath, off_t fsize, unsigned char** mhash, size_t* m
 int
 dump_mhash(const unsigned char* mhash, size_t mhash_size);
 
+int
+set_sigpipe_handler();
 
 #if defined(__cplusplus)
 }

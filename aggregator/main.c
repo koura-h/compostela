@@ -644,6 +644,9 @@ main(int argc, char** argv)
     argv += optind;
 
     //
+    set_sigpipe_handler();
+
+    //
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = PF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;

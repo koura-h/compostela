@@ -4,6 +4,7 @@
 
 
 enum {
+    SCM_MSG_NONE = 0,
     SCM_MSG_INIT = 100,
     SCM_MSG_DATA = 101,
     SCM_MSG_POS  = 102,

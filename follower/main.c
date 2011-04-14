@@ -32,12 +32,14 @@ enum { BUFSIZE = 8196 };
 typedef struct _sc_follow_context {
     char *filename;
     int channel;
-    off_t current_position;
+    // off_t current_position;
     off_t filesize;
     mode_t mode;
     int _fd;
     //
     az_buffer* buffer;
+    //
+    sc_message* message_buffer;
     //
     char *displayname;
     //
@@ -59,8 +61,9 @@ sc_aggregator_connection_new(const char* host, int port)
 {
     sc_aggregator_connection* conn = (sc_aggregator_connection*)malloc(sizeof(sc_aggregator_connection));
     if (conn) {
-	conn->host = strdup(host);
-	conn->port = port;
+        conn->socket = -1;
+	conn->host   = strdup(host);
+	conn->port   = port;
     }
     return conn;
 }
@@ -101,6 +104,12 @@ sc_aggregator_connection_open(sc_aggregator_connection* conn)
     freeaddrinfo(ai0);
 
     return conn->socket != -1 ? 0 : -1;
+}
+
+int
+sc_aggregator_connection_is_opened(sc_aggregator_connection* conn)
+{
+    return conn->socket != -1 ? 1 : 0;
 }
 
 int
@@ -282,6 +291,8 @@ sc_follow_context_new(const char* fname, const char* dispname, sc_aggregator_con
         // we should read control files for 'fname'
 
         cxt->buffer = az_buffer_new(BUFSIZE);
+	cxt->message_buffer = sc_message_new(BUFSIZE);
+	cxt->message_buffer->code = htons(SCM_MSG_NONE);
     }
 
     return cxt;
@@ -303,9 +314,11 @@ sc_follow_context_open_file(sc_follow_context* cxt, int use_lseek)
     cxt->filesize = st.st_size;
     cxt->mode = st.st_mode;
 
+#if 0
     if (use_lseek) {
         lseek(cxt->_fd, cxt->current_position, SEEK_SET);
     }
+#endif
     return 0;
 }
 
@@ -334,8 +347,6 @@ _sc_follow_context_proc_data(sc_follow_context* cxt, sc_message* msg, sc_message
 
     if ((ret = sc_aggregator_connection_receive_message(cxt->connection, ppresp)) != 0) {
 	fprintf(stderr, "DATA: connection has broken. (on receiving) = %d\n", ret);
-
-	// reconnect
 	return ret;
     }
 
@@ -411,8 +422,15 @@ _sc_follow_context_read_line(sc_follow_context* cxt, char* dst, size_t dsize)
 }
 
 
+/**
+ *
+ * returns: >0 ... no data processed, or connection to aggregator is down.
+ *                 retry later.
+ *          =0 ... data processed, and sent to aggregator. everything's good.
+ *          <0 ... error occurred.
+ */
 int
-sc_follow_context_run(sc_follow_context* cxt, sc_message* msgbuf, sc_message** presp)
+sc_follow_context_run(sc_follow_context* cxt, sc_message** presp)
 {
     // sc_message* msg = sc_message_new(csize), *resp = NULL;
     int ret = 0, cb = 0;
@@ -421,49 +439,54 @@ sc_follow_context_run(sc_follow_context* cxt, sc_message* msgbuf, sc_message** p
     assert(presp != NULL);
     *presp = NULL;
 
+    sc_message* msgbuf = cxt->message_buffer;
+
     fprintf(stderr, "context run\n");
+    if (!sc_aggregator_connection_is_opened(cxt->connection)) {
+        // disconnected. but show must go on.
+	fprintf(stderr, ">>> %s: PLEASE RECONNECT NOW!\n", __FUNCTION__);
+	return 1001;
+    }
 
-    if (cxt->_fd <= 0) {
-        // sc_follow_context_open_file(cxt, 1);
-        if (sc_follow_context_open_file(cxt, 0) != 0) {
-            fprintf(stderr, "sc_follow_context_run: not opened yet => [%s]\n", cxt->filename);
-            return 0;
+    if (msgbuf->code == htons(SCM_MSG_NONE)) {
+        if (cxt->_fd <= 0) {
+            // sc_follow_context_open_file(cxt, 1);
+            if (sc_follow_context_open_file(cxt, 0) != 0) {
+                fprintf(stderr, "sc_follow_context_run: not opened yet => [%s]\n", cxt->filename);
+                return 1;
+            }
+            sc_follow_context_sync_file(cxt);
         }
-        sc_follow_context_sync_file(cxt);
+
+        cb = _sc_follow_context_read_line(cxt, msgbuf->content, BUFSIZE);
+        if (cb == 0) {
+            // EOF, wait for the new available data.
+	    return 1;
+        } else if (cb < 0) {
+            return -1;
+        }
+
+        assert(cxt->channel != 0);
+        fprintf(stderr, "reading file...\n");
+
+        msgbuf->code    = htons(SCM_MSG_DATA);
+        msgbuf->channel = htons(cxt->channel);
+        msgbuf->length  = htonl(cb);
     }
-
-    // cb = read(cxt->_fd, &msgbuf->content, BUFSIZE);
-    cb = _sc_follow_context_read_line(cxt, msgbuf->content, BUFSIZE);
-    if (cb == 0) {
-	return -1001;
-    } else if (cb < 0) {
-        return -1;
-    }
-
-    // cxt->current_position = lseek(cxt->_fd, 0, SEEK_CUR);
-    cur = lseek(cxt->_fd, 0, SEEK_CUR);
-
-    assert(cxt->channel != 0);
-
-    fprintf(stderr, "reading file...\n");
-
-    msgbuf->code    = htons(SCM_MSG_DATA);
-    msgbuf->channel = htons(cxt->channel);
-    msgbuf->length  = htonl(cb);
 
     if (_sc_follow_context_proc_data(cxt, msgbuf, presp) != 0) {
 	// should reconnect
-	fprintf(stderr, "reconnect now\n");
+	fprintf(stderr, "You should reconnect now\n");
 #if 0
 	sc_aggregator_connection_open(cxt->connection);
         sc_follow_context_sync_file(cxt);
 #endif
-	// reconnected
-	return 1;
+	return 1001;
     }
 
     if (htons((*presp)->code) == SCM_RESP_OK) {
-        cxt->current_position = cur;
+        // cxt->current_position = cur;
+	msgbuf->code = htons(SCM_MSG_NONE);
     }
 
     return 0;
@@ -472,7 +495,9 @@ sc_follow_context_run(sc_follow_context* cxt, sc_message* msgbuf, sc_message** p
 void
 sc_follow_context_destroy(sc_follow_context* cxt)
 {
-    free(cxt->buffer);
+    sc_message_destroy(cxt->message_buffer);
+    az_buffer_destroy(cxt->buffer);
+
     free(cxt->filename);
     free(cxt->displayname);
     free(cxt);
@@ -508,7 +533,7 @@ main(int argc, char** argv)
     sc_follow_context *cxt = NULL;
 
     int ret, ch, i;
-    sc_message *msg, *resp;
+    sc_message *resp;
     char *conf = NULL;
 
     struct option long_opts[] = {
@@ -547,8 +572,8 @@ main(int argc, char** argv)
 
     do_rotate(g_connection);
     set_rotation_timer();
+    set_sigpipe_handler();
 
-    msg = sc_message_new(BUFSIZE);
     while (1) {
         az_list* li;
 	int sl = 1;
@@ -557,13 +582,16 @@ main(int argc, char** argv)
 	for (li = g_context_list; li; li = li->next) {
             resp = NULL;
             cxt = li->object;
-            ret = sc_follow_context_run(cxt, msg, &resp);
-	    if (ret == -1001) {
+            ret = sc_follow_context_run(cxt, &resp);
+	    if (ret > 0) {
+	        // nothing processed, and wait for a while.
 	        sl = 1;
 	    } else if (ret == -1) {
+	        // error occurred
 	        perror("sc_follow_context_run");
 	        exit(1);
 	    } else {
+	        // in proceessed any bytes.
 	        sl = 0;
 	    }
 
@@ -575,7 +603,6 @@ main(int argc, char** argv)
 	    continue;
 	}
     }
-    sc_message_destroy(msg);
 }
 
 void
@@ -613,6 +640,8 @@ set_rotation_timer()
     itimer.it_interval.tv_usec = 0;
     itimer.it_value = itimer.it_interval;
     assert(setitimer(ITIMER_REAL, &itimer, 0) == 0);
+
+    return 0;
 }
 
 int
