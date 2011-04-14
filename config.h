@@ -4,6 +4,9 @@
 /* Define to 1 if the `closedir' function returns void instead of `int'. */
 /* #undef CLOSEDIR_VOID */
 
+/* Define to 1 if you have the `alarm' function. */
+#define HAVE_ALARM 1
+
 /* Define to 1 if you have the <dirent.h> header file, and it defines `DIR'.
    */
 #define HAVE_DIRENT_H 1
@@ -15,13 +18,16 @@
 #define HAVE_INTTYPES_H 1
 
 /* Define to 1 if you have the `cunit' library (-lcunit). */
-/* #undef HAVE_LIBCUNIT */
+#define HAVE_LIBCUNIT 1
 
 /* Define to 1 if you have the `ssl' library (-lssl). */
 #define HAVE_LIBSSL 1
 
 /* Define to 1 if you have the `yaml' library (-lyaml). */
 #define HAVE_LIBYAML 1
+
+/* Define to 1 if you have the `localtime_r' function. */
+#define HAVE_LOCALTIME_R 1
 
 /* Define to 1 if your system has a GNU libc compatible `malloc' function, and
    to 0 otherwise. */
@@ -103,6 +109,9 @@
 /* Define to 1 if you have the <sys/stat.h> header file. */
 #define HAVE_SYS_STAT_H 1
 
+/* Define to 1 if you have the <sys/time.h> header file. */
+#define HAVE_SYS_TIME_H 1
+
 /* Define to 1 if you have the <sys/types.h> header file. */
 #define HAVE_SYS_TYPES_H 1
 
@@ -132,10 +141,13 @@
 #define PACKAGE_VERSION "0.1"
 
 /* sysconfdir */
-#define PATH_SYSCONFDIR "/usr/klab/etc/compostela"
+#define PATH_SYSCONFDIR "/usr/local/etc"
 
 /* Define to 1 if you have the ANSI C header files. */
 #define STDC_HEADERS 1
+
+/* Define to 1 if you can safely include both <sys/time.h> and <time.h>. */
+#define TIME_WITH_SYS_TIME 1
 
 /* Define to 1 if your <sys/time.h> declares `struct tm'. */
 /* #undef TM_IN_SYS_TIME */

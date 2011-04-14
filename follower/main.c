@@ -130,10 +130,12 @@ sc_follow_context_sync_file(sc_follow_context *cxt)
 
     // send_message
     if (sc_aggregator_connection_send_message(cxt->connection, msg) != 0) {
+	fprintf(stderr, "INIT: connection has broken.\n");
         return -1;
     }
 
     if (sc_aggregator_connection_receive_message(cxt->connection, &resp) != 0) {
+	fprintf(stderr, "INIT: connection has broken. (on receiving)\n");
         return -3;
     }
 
@@ -193,6 +195,8 @@ sc_aggregator_connection_send_message(sc_aggregator_connection* conn, sc_message
 
     fprintf(stderr, "send_message: code = %d, channel = %d, length = %lx\n", ntohs(msg->code), ntohs(msg->channel), len);
     if ((ret = sendall(conn->socket, msg, len + offsetof(sc_message, content), 0)) <= 0) {
+        close(conn->socket);
+	conn->socket = -1;
         perror("sendall");
         fprintf(stderr, "sending error\n");
         return -1;
@@ -212,6 +216,8 @@ sc_aggregator_connection_receive_message(sc_aggregator_connection* conn, sc_mess
 
     n = recvall(conn->socket, buf, sizeof(buf), 0);
     if (n < 0) {
+        close(conn->socket);
+	conn->socket = -1;
         perror("recvall");
         return -1;
     } else if (n == 0) {
@@ -322,12 +328,12 @@ _sc_follow_context_proc_data(sc_follow_context* cxt, sc_message* msg, sc_message
 
     if ((ret = sc_aggregator_connection_send_message(cxt->connection, msg)) != 0) {
 	// connection broken
-	fprintf(stderr, "connection has broken.\n");
+	fprintf(stderr, "DATA: connection has broken.\n");
 	return ret;
     }
 
     if ((ret = sc_aggregator_connection_receive_message(cxt->connection, ppresp)) != 0) {
-	fprintf(stderr, "connection has broken. (2) = %d\n", ret);
+	fprintf(stderr, "DATA: connection has broken. (on receiving) = %d\n", ret);
 
 	// reconnect
 	return ret;
@@ -344,12 +350,12 @@ _sc_follow_context_proc_dele(sc_follow_context* cxt, sc_message* msg, sc_message
 
     if ((ret = sc_aggregator_connection_send_message(cxt->connection, msg)) != 0) {
 	// connection broken
-	fprintf(stderr, "connection has broken.\n");
+	fprintf(stderr, "DELE: connection has broken.\n");
 	return ret;
     }
 
     if ((ret = sc_aggregator_connection_receive_message(cxt->connection, ppresp)) != 0) {
-	fprintf(stderr, "connection has broken. (2) = %d\n", ret);
+	fprintf(stderr, "DELE: connection has broken. (on receiving) = %d\n", ret);
 
 	// reconnect
 	return ret;
@@ -429,21 +435,6 @@ sc_follow_context_run(sc_follow_context* cxt, sc_message* msgbuf, sc_message** p
     // cb = read(cxt->_fd, &msgbuf->content, BUFSIZE);
     cb = _sc_follow_context_read_line(cxt, msgbuf->content, BUFSIZE);
     if (cb == 0) {
-        // sleep(1);
-	// continue;
-	/*
-        msgbuf->code    = htons(SCM_MSG_DELE);
-        msgbuf->channel = htons(cxt->channel);
-        msgbuf->length  = 0;
-
-	_sc_follow_context_proc_dele(cxt, msgbuf, presp);
-	fprintf(stderr, "DELE: done\n");
-	if (htons((*presp)->code) == SCM_RESP_OK) {
-	    cxt->channel = 0;
-
-	    sc_follow_context_close_file(cxt);
-	}
-	*/
 	return -1001;
     } else if (cb < 0) {
         return -1;
@@ -461,10 +452,12 @@ sc_follow_context_run(sc_follow_context* cxt, sc_message* msgbuf, sc_message** p
     msgbuf->length  = htonl(cb);
 
     if (_sc_follow_context_proc_data(cxt, msgbuf, presp) != 0) {
-	// reconnect
+	// should reconnect
 	fprintf(stderr, "reconnect now\n");
+#if 0
 	sc_aggregator_connection_open(cxt->connection);
         sc_follow_context_sync_file(cxt);
+#endif
 	// reconnected
 	return 1;
     }
