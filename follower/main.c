@@ -1,6 +1,8 @@
 /* $Id$ */
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/time.h>
+#include <signal.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -503,18 +505,18 @@ get_seconds_left_in_today()
     return difftime(t1, t);
 }
 
+static sc_aggregator_connection *g_connection = NULL;
+
 int
 main(int argc, char** argv)
 {
     int epfd;
 
     sc_follow_context *cxt = NULL;
-    sc_aggregator_connection *conn = NULL;
 
     int ret, ch, i;
     sc_message *msg, *resp;
     char *conf = NULL;
-    double secs_left = 0;
 
     struct option long_opts[] = {
         { "config", 2, NULL, 0 },
@@ -546,12 +548,12 @@ main(int argc, char** argv)
         exit(1);
     }
 
-    conn = sc_aggregator_connection_new(g_config_server_address, g_config_server_port);
-    sc_aggregator_connection_open(conn);
-    fprintf(stderr, "conn = %p\n", conn);
+    g_connection = sc_aggregator_connection_new(g_config_server_address, g_config_server_port);
+    sc_aggregator_connection_open(g_connection);
+    fprintf(stderr, "conn = %p\n", g_connection);
 
-    do_rotate(conn);
-    secs_left = get_seconds_left_in_today();
+    do_rotate(g_connection);
+    set_rotation_timer();
 
     msg = sc_message_new(BUFSIZE);
     while (1) {
@@ -581,6 +583,43 @@ main(int argc, char** argv)
 	}
     }
     sc_message_destroy(msg);
+}
+
+void
+handler_alarm(int sig, siginfo_t* sinfo, void* ptr)
+{
+    struct itimerval itimer = {};
+    fprintf(stderr, ">>> %s: BEGIN\n", __FUNCTION__);
+
+    do_rotate(g_connection);
+
+    itimer.it_interval.tv_sec = 86400;
+    itimer.it_interval.tv_usec = 0;
+    itimer.it_value = itimer.it_interval;
+    assert(setitimer(ITIMER_REAL, &itimer, 0) == 0);
+
+    fprintf(stderr, ">>> %s: END\n", __FUNCTION__);
+}
+
+int
+set_rotation_timer()
+{
+    double secs_left = 0.0L;
+    struct itimerval itimer = {};
+    struct sigaction sa = {
+        .sa_sigaction = handler_alarm,
+        .sa_flags = SA_RESTART | SA_SIGINFO,
+    };
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGALRM, &sa, NULL);
+
+    secs_left = get_seconds_left_in_today();
+    fprintf(stderr, "secs_left = %lf\n", secs_left);
+
+    itimer.it_interval.tv_sec = secs_left;
+    itimer.it_interval.tv_usec = 0;
+    itimer.it_value = itimer.it_interval;
+    assert(setitimer(ITIMER_REAL, &itimer, 0) == 0);
 }
 
 int
