@@ -20,5 +20,7 @@ ssize_t az_buffer_fetch_file(az_buffer* buf, int fd, size_t size);
 
 int az_buffer_push_back(az_buffer* buf, const char* src, size_t ssize);
 
+void az_buffer_reset(az_buffer* buf);
+
 
 #endif

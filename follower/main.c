@@ -299,7 +299,7 @@ sc_follow_context_new(const char* fname, const char* dispname, sc_aggregator_con
 }
 
 int
-sc_follow_context_open_file(sc_follow_context* cxt, int use_lseek)
+sc_follow_context_open_file(sc_follow_context* cxt)
 {
     struct stat st;
     int flags;
@@ -314,11 +314,6 @@ sc_follow_context_open_file(sc_follow_context* cxt, int use_lseek)
     cxt->filesize = st.st_size;
     cxt->mode = st.st_mode;
 
-#if 0
-    if (use_lseek) {
-        lseek(cxt->_fd, cxt->current_position, SEEK_SET);
-    }
-#endif
     return 0;
 }
 
@@ -330,7 +325,19 @@ sc_follow_context_close_file(sc_follow_context* cxt)
         close(cxt->_fd);
 	cxt->_fd = -1;
     }
+
+    cxt->mode = 0;
+    cxt->filesize = 0;
+
     return 0;
+}
+
+void
+sc_follow_context_reset(sc_follow_context* cxt)
+{
+    sc_follow_context_close_file(cxt);
+    az_buffer_reset(cxt->buffer);
+    cxt->message_buffer->code = htons(SCM_MSG_NONE);
 }
 
 int
@@ -450,8 +457,7 @@ sc_follow_context_run(sc_follow_context* cxt, sc_message** presp)
 
     if (msgbuf->code == htons(SCM_MSG_NONE)) {
         if (cxt->_fd <= 0) {
-            // sc_follow_context_open_file(cxt, 1);
-            if (sc_follow_context_open_file(cxt, 0) != 0) {
+            if (sc_follow_context_open_file(cxt) != 0) {
                 fprintf(stderr, "sc_follow_context_run: not opened yet => [%s]\n", cxt->filename);
                 return 1;
             }
@@ -503,7 +509,7 @@ sc_follow_context_destroy(sc_follow_context* cxt)
     free(cxt);
 }
 
-az_list* g_context_list;
+az_list* g_context_list = NULL;
 
 const char *DEFAULT_CONF = PATH_SYSCONFDIR "/comfollower.conf";
 
@@ -576,7 +582,7 @@ main(int argc, char** argv)
 
     while (1) {
         az_list* li;
-	int sl = 1;
+	int sl = 1, rc = 0;
         cxt = NULL;
 
 	for (li = g_context_list; li; li = li->next) {
@@ -584,6 +590,9 @@ main(int argc, char** argv)
             cxt = li->object;
             ret = sc_follow_context_run(cxt, &resp);
 	    if (ret > 0) {
+	        if (ret >= 1000) {
+		    rc = 1;
+		}
 	        // nothing processed, and wait for a while.
 	        sl = 1;
 	    } else if (ret == -1) {
@@ -598,6 +607,16 @@ main(int argc, char** argv)
             // here, we proceed response from aggregator
             sc_message_destroy(resp);
 	}
+
+	if (rc) {
+	    for (li = g_context_list; li; li = li->next) {
+                cxt = li->object;
+                // haha
+                sc_follow_context_reset(cxt);
+            }
+	    sc_aggregator_connection_open(g_connection);
+	}
+
 	if (sl > 0) {
 	    sleep(sl);
 	    continue;
@@ -690,11 +709,6 @@ do_rotate(sc_aggregator_connection* conn)
 
         if (not_found) {
             cxt = sc_follow_context_new(fn, dn, conn);
-#if 0
-            sc_follow_context_open_file(cxt, 0);
-
-            sc_follow_context_sync_file(cxt);
-#endif
 
             g_context_list = az_list_add(g_context_list, cxt);
         }

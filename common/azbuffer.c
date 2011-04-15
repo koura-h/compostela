@@ -141,3 +141,10 @@ az_buffer_push_back(az_buffer* buf, const char* src, size_t ssize)
 
     return 0;
 }
+
+void
+az_buffer_reset(az_buffer* buf)
+{
+    buf->cursor = buf->buffer;
+    buf->used = 0;
+}
