@@ -361,20 +361,19 @@ _sc_follow_context_proc_data(sc_follow_context* cxt, sc_message* msg, sc_message
 }
 
 int
-_sc_follow_context_proc_dele(sc_follow_context* cxt, sc_message* msg, sc_message** ppresp)
+_sc_follow_context_proc_rele(sc_follow_context* cxt, sc_message* msg, sc_message** ppresp)
 {
     int ret = 0;
     *ppresp = NULL;
 
     if ((ret = sc_aggregator_connection_send_message(cxt->connection, msg)) != 0) {
 	// connection broken
-	fprintf(stderr, "DELE: connection has broken.\n");
+	fprintf(stderr, "RELE: connection has broken.\n");
 	return ret;
     }
 
     if ((ret = sc_aggregator_connection_receive_message(cxt->connection, ppresp)) != 0) {
-	fprintf(stderr, "DELE: connection has broken. (on receiving) = %d\n", ret);
-
+	fprintf(stderr, "RELE: connection has broken. (on receiving) = %d\n", ret);
 	// reconnect
 	return ret;
     }
@@ -428,6 +427,46 @@ _sc_follow_context_read_line(sc_follow_context* cxt, char* dst, size_t dsize)
     return p - dst;
 }
 
+int
+sc_follow_context_close(sc_follow_context* cxt)
+{
+    sc_message* msg = NULL, *resp = NULL;
+    int ret;
+
+    fprintf(stderr, "context close\n");
+    if (!sc_aggregator_connection_is_opened(cxt->connection)) {
+        // disconnected. but show must go on.
+	fprintf(stderr, ">>> %s: PLEASE RECONNECT NOW!\n", __FUNCTION__);
+	return 1001;
+    }
+
+    if (cxt->_fd < 0) {
+        fprintf(stderr, "already closed.\n");
+	return -1;
+    }
+
+    msg = sc_message_new(sizeof(int32_t));
+    msg->code   = htons(SCM_MSG_RELE);
+    msg->code   = htons(cxt->channel);
+    msg->length = htonl(sizeof(int32_t));
+    memset(msg->content, 0, sizeof(int32_t));
+
+    if ((ret = sc_aggregator_connection_send_message(cxt->connection, msg)) != 0) {
+	// connection broken
+	fprintf(stderr, "RELE: connection has broken.\n");
+	sc_message_destroy(msg);
+	return 1001;
+    }
+
+    if ((ret = sc_aggregator_connection_receive_message(cxt->connection, &resp)) != 0) {
+	fprintf(stderr, "RELE: connection has broken. (on receiving) = %d\n", ret);
+	sc_message_destroy(msg);
+	return 1001;
+    }
+    sc_message_destroy(msg);
+
+    return 0;
+}
 
 /**
  *
@@ -673,6 +712,8 @@ do_rotate(sc_aggregator_connection* conn)
     int not_found;
     az_list *li;
 
+    // connection must be opened.
+
     time(&t);
     localtime_r(&t, &tm);
     for (pe = g_config_patterns; pe; pe = pe->_next) {
@@ -700,8 +741,13 @@ do_rotate(sc_aggregator_connection* conn)
         for (li = g_context_list; not_found && li; li = li->next) {
             cxt = li->object;
             if (strcmp(cxt->filename, fn) == 0) {
-                // ok, I'm already following it.
-                not_found = 0;
+		if (strcmp(cxt->displayname, dn) == 0) {
+                    // ok, I'm already following it.
+                    not_found = 0;
+		} else {
+		    // displayName has rotated.
+		    sc_follow_context_close(cxt);
+		}
                 fprintf(stderr, "yeah, file(%s) has been already following now.\n");
                 break;
             }

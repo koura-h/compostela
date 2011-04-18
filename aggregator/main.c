@@ -420,7 +420,7 @@ handler_data(sc_message* msg, sc_connection* conn, sc_channel* channel)
 }
 
 int
-handler_dele(sc_message* msg, sc_connection* conn, sc_channel* channel)
+handler_rele(sc_message* msg, sc_connection* conn, sc_channel* channel)
 {
     int n;
     sc_connection_delete_channel(conn, channel);
@@ -511,8 +511,8 @@ do_receive(int epfd, sc_connection* conn)
 	case SCM_MSG_DATA:
 	    handler_data(msg, conn, channel);
 	    break;
-	case SCM_MSG_DELE:
-	    handler_dele(msg, conn, channel);
+	case SCM_MSG_RELE:
+	    handler_rele(msg, conn, channel);
 	    break;
 	}
     } else if (n == 0) {

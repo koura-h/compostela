@@ -8,7 +8,8 @@ enum {
     SCM_MSG_INIT = 100,
     SCM_MSG_DATA = 101,
     SCM_MSG_POS  = 102,
-    SCM_MSG_DELE = 103,
+    SCM_MSG_RELE = 103,
+    SCM_MSG_MOVE = 104,
     //
     SCM_RESP_OK = 1001,
 };
