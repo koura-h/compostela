@@ -632,8 +632,6 @@ main(int argc, char** argv)
 	        if (ret >= 1000) {
 		    rc = 1;
 		}
-	        // nothing processed, and wait for a while.
-	        sl = 1;
 	    } else if (ret == -1) {
 	        // error occurred
 	        perror("sc_follow_context_run");
