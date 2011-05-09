@@ -446,9 +446,9 @@ sc_follow_context_close(sc_follow_context* cxt)
     }
 
     msg = sc_message_new(sizeof(int32_t));
-    msg->code   = htons(SCM_MSG_RELE);
-    msg->code   = htons(cxt->channel);
-    msg->length = htonl(sizeof(int32_t));
+    msg->code    = htons(SCM_MSG_RELE);
+    msg->channel = htons(cxt->channel);
+    msg->length  = htonl(sizeof(int32_t));
     memset(msg->content, 0, sizeof(int32_t));
 
     if ((ret = sc_aggregator_connection_send_message(cxt->connection, msg)) != 0) {
@@ -746,7 +746,7 @@ do_rotate(sc_aggregator_connection* conn)
 		    // displayName has rotated.
 		    sc_follow_context_close(cxt);
 		}
-                fprintf(stderr, "yeah, file(%s) has been already following now.\n");
+                fprintf(stderr, "yeah, file(%s) has been already following now.\n", fn);
                 break;
             }
         }
