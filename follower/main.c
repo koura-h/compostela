@@ -483,9 +483,8 @@ int
 sc_follow_context_run(sc_follow_context* cxt, sc_message** presp)
 {
     // sc_message* msg = sc_message_new(csize), *resp = NULL;
-    int ret = 0, cb = 0;
+    int ret = 0, cb = 0, cb0 = 0;
     off_t cur;
-    char* p;
 
     assert(presp != NULL);
     *presp = NULL;
@@ -508,15 +507,14 @@ sc_follow_context_run(sc_follow_context* cxt, sc_message** presp)
             sc_follow_context_sync_file(cxt);
         }
 
-        p = msgbuf->content;
         if (cxt->ftimestamp) {
             struct tm tm;
             time_t t;
             time(&t);
             localtime_r(&t, &tm);
-            p += strftime(p, BUFSIZE, "%b %d %H ", &tm);
+            cb0 = strftime(msgbuf->content, BUFSIZE, "%b %d %T ", &tm);
         }
-        cb = _sc_follow_context_read_line(cxt, p, BUFSIZE - (p - msgbuf->content));
+        cb = _sc_follow_context_read_line(cxt, msgbuf->content + cb0, BUFSIZE - cb0);
         if (cb == 0) {
             // EOF, wait for the new available data.
 	    return 1;
@@ -529,7 +527,7 @@ sc_follow_context_run(sc_follow_context* cxt, sc_message** presp)
 
         msgbuf->code    = htons(SCM_MSG_DATA);
         msgbuf->channel = htons(cxt->channel);
-        msgbuf->length  = htonl(cb);
+        msgbuf->length  = htonl(cb0 + cb);
     }
 
     if (_sc_follow_context_proc_data(cxt, msgbuf, presp) != 0) {
