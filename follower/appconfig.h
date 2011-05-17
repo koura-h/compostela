@@ -5,6 +5,7 @@ typedef struct _sc_config_pattern_entry {
     char* path;
     char* displayName;
     int rotate;
+    int append_timestamp;
     //
     struct _sc_config_pattern_entry *_next;
 } sc_config_pattern_entry;
