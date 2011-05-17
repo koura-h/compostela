@@ -43,6 +43,8 @@ typedef struct _sc_follow_context {
     //
     char *displayname;
     //
+    int ftimestamp;
+    //
     struct _sc_aggregator_connection *connection;
 } sc_follow_context;
 
@@ -265,7 +267,7 @@ sc_aggregator_connection_destroy(sc_aggregator_connection* conn)
 ////////////////////
 
 sc_follow_context*
-sc_follow_context_new(const char* fname, const char* dispname, sc_aggregator_connection* conn)
+sc_follow_context_new(const char* fname, const char* dispname, int ftimestamp, sc_aggregator_connection* conn)
 {
     sc_follow_context* cxt = NULL;
 
@@ -289,6 +291,8 @@ sc_follow_context_new(const char* fname, const char* dispname, sc_aggregator_con
             cxt = NULL;
         }
         // we should read control files for 'fname'
+
+        cxt->ftimestamp = ftimestamp;
 
         cxt->buffer = az_buffer_new(BUFSIZE);
 	cxt->message_buffer = sc_message_new(BUFSIZE);
@@ -479,7 +483,7 @@ int
 sc_follow_context_run(sc_follow_context* cxt, sc_message** presp)
 {
     // sc_message* msg = sc_message_new(csize), *resp = NULL;
-    int ret = 0, cb = 0;
+    int ret = 0, cb = 0, cb0 = 0;
     off_t cur;
 
     assert(presp != NULL);
@@ -503,7 +507,14 @@ sc_follow_context_run(sc_follow_context* cxt, sc_message** presp)
             sc_follow_context_sync_file(cxt);
         }
 
-        cb = _sc_follow_context_read_line(cxt, msgbuf->content, BUFSIZE);
+        if (cxt->ftimestamp) {
+            struct tm tm;
+            time_t t;
+            time(&t);
+            localtime_r(&t, &tm);
+            cb0 = strftime(msgbuf->content, BUFSIZE, "%b %d %T ", &tm);
+        }
+        cb = _sc_follow_context_read_line(cxt, msgbuf->content + cb0, BUFSIZE - cb0);
         if (cb == 0) {
             // EOF, wait for the new available data.
 	    return 1;
@@ -516,7 +527,7 @@ sc_follow_context_run(sc_follow_context* cxt, sc_message** presp)
 
         msgbuf->code    = htons(SCM_MSG_DATA);
         msgbuf->channel = htons(cxt->channel);
-        msgbuf->length  = htonl(cb);
+        msgbuf->length  = htonl(cb0 + cb);
     }
 
     if (_sc_follow_context_proc_data(cxt, msgbuf, presp) != 0) {
@@ -568,6 +579,12 @@ get_seconds_left_in_today()
     return difftime(t1, t);
 }
 
+void
+usage()
+{
+    fprintf(stderr, "USAGE: comfollower\n");
+}
+
 static sc_aggregator_connection *g_connection = NULL;
 
 int
@@ -585,9 +602,10 @@ main(int argc, char** argv)
         { "config", 2, NULL, 0 },
         { "server-port", 2, NULL, 0 },
         { "server-addr", 2, NULL, 0 },
+        { "help", 2, NULL, 0 },
     };
 
-    while ((ch = getopt_long(argc, argv, "c:p:s:", long_opts, NULL)) != -1) {
+    while ((ch = getopt_long(argc, argv, "c:p:s:h", long_opts, NULL)) != -1) {
         switch (ch) {
 	case 'c':
 	    conf = strdup(optarg);
@@ -598,6 +616,10 @@ main(int argc, char** argv)
         case 's':
             g_config_server_address = strdup(optarg);
             break;
+        case 'h':
+        default:
+            usage();
+            exit(1);
         }
     }
     argc -= optind;
@@ -752,7 +774,7 @@ do_rotate(sc_aggregator_connection* conn)
         }
 
         if (not_found) {
-            cxt = sc_follow_context_new(fn, dn, conn);
+            cxt = sc_follow_context_new(fn, dn, pe->append_timestamp, conn);
 
             g_context_list = az_list_add(g_context_list, cxt);
         }
