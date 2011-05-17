@@ -85,8 +85,9 @@ _pick_pattern_entry(yaml_parser_t* parser)
             } else if (strcmp(event.data.scalar.value, "displayName") == 0) {
                 ret->displayName = strdup(event_value.data.scalar.value);
             } else if (strcmp(event.data.scalar.value, "rotate") == 0) {
-                ret->rotate = strcasecmp(event_value.data.scalar.value, "true")
-                == 0 ? 1 : 0;
+                ret->rotate = strcasecmp(event_value.data.scalar.value, "true") == 0 ? 1 : 0;
+            } else if (strcmp(event.data.scalar.value, "timestamp") == 0) {
+                ret->append_timestamp = strcasecmp(event_value.data.scalar.value, "true") == 0 ? 1 : 0;
             }
             yaml_event_delete(&event_value);
             break;
