@@ -201,5 +201,5 @@ __w3cdatetime(char* buf, size_t sz, time_t t)
         *(p - 2)= ':';
     }
 
-    return n;
+    return n + 1;
 }
