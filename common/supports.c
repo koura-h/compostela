@@ -8,6 +8,7 @@
 #include <signal.h>
 
 #include <sys/stat.h>
+#include <time.h>
 #include <fcntl.h>
 
 #include <openssl/md5.h>
@@ -179,4 +180,26 @@ set_sigpipe_handler()
     sigaction(SIGPIPE, &sa, NULL);
 
     return 0;
+}
+
+////
+size_t
+__w3cdatetime(char* buf, size_t sz, time_t t)
+{
+    struct tm tm;
+    char *p;
+    size_t n;
+
+    localtime_r(&t, &tm);
+
+    n = strftime(buf, sz - 1, "%FT%T%z", &tm);
+    p = buf + n;
+    if (*p == '\0' && isdigit(*(p - 1)) && isdigit(*(p - 2))) {
+        *(p + 1) = *p;       // == '\0'
+        *(p    ) = *(p - 1);
+        *(p - 1) = *(p - 2);
+        *(p - 2)= ':';
+    }
+
+    return n;
 }
