@@ -18,9 +18,6 @@
 #include "supports.h"
 #include "azlist.h"
 
-#include "appconfig.h"
-#include "config.h"
-
 enum { MAX_SOCKETS = 10 };
 enum { MAX_EVENTS = 10 };
 
@@ -30,7 +27,7 @@ int g_config_default_mode = 0644;
 char* g_config_listen_addr = NULL;
 char* g_config_listen_port_str = "8187";
 
-const char *DEFAULT_CONF = PATH_SYSCONFDIR "/compostela.conf";
+const char* g_config_output_dir = ".";
 
 ////////////////////////////////////////
 
@@ -77,7 +74,7 @@ sc_channel_new(const char* fname, sc_connection* conn)
     if (channel) {
         if (fname) {
 	    channel->filename = strdup(fname);
-	    channel->__filename_fullpath = pathcat(g_config_server_logdir, conn->remote_addr, fname, NULL);
+	    channel->__filename_fullpath = pathcat(g_config_output_dir, conn->remote_addr, fname, NULL);
 	    fprintf(stderr, "__filename_fullpath = %s\n", channel->__filename_fullpath);
 	}
 	channel->connection = conn;
@@ -262,7 +259,7 @@ _do_merge_file(const char* host, const char* path, const char *data, size_t len)
     int fd;
     char fullp[PATH_MAX];
 
-    __mk_path(g_config_server_logdir, path, fullp, sizeof(fullp));
+    __mk_path(g_config_output_dir, path, fullp, sizeof(fullp));
     fprintf(stderr, "merging to ... [%s]\n", fullp);
 
     fd = open(fullp, O_APPEND | O_RDWR | O_CREAT, g_config_default_mode);
@@ -619,25 +616,21 @@ main(int argc, char** argv)
     int err;
     int s[MAX_SOCKETS], nsock, i, c;
 
-    char buf[2048], *conf = NULL;
+    char buf[2048];
     ssize_t cb, n;
 
     int yes = 1, ch;
 
     struct option long_opts[] = {
-        { "config", 2, NULL, 0 },
         { "output-dir", 2, NULL, 0 },
 	{ "listen-port", 2, NULL, 0 },
 	{ "listen-addr", 2, NULL, 0 },
     };
 
-    while ((ch = getopt_long(argc, argv, "c:o:p:L:", long_opts, NULL)) != -1) {
+    while ((ch = getopt_long(argc, argv, "o:p:L:", long_opts, NULL)) != -1) {
         switch (ch) {
-        case 'c':
-            conf = strdup(optarg);
-            break;
 	case 'o':
-	    g_config_server_logdir = strdup(optarg);
+	    g_config_output_dir = strdup(optarg);
 	    break;
 	case 'p':
 	    g_config_listen_port_str = strdup(optarg);
@@ -649,9 +642,6 @@ main(int argc, char** argv)
     }
     argc -= optind;
     argv += optind;
-
-    load_config_file((conf ? conf : DEFAULT_CONF));
-    free(conf);
 
     //
     set_sigpipe_handler();
