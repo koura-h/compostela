@@ -27,6 +27,8 @@ enum { MAX_EVENTS = 10 };
 enum { BUFSIZE = 2048 };
 
 int g_config_default_mode = 0644;
+char* g_config_listen_addr = NULL;
+char* g_config_listen_port_str = "8187";
 
 const char *DEFAULT_CONF = PATH_SYSCONFDIR "/compostela.conf";
 
@@ -617,7 +619,7 @@ main(int argc, char** argv)
     int err;
     int s[MAX_SOCKETS], nsock, i, c;
 
-    char buf[2048], *conf = NULL, sport[16];
+    char buf[2048], *conf = NULL;
     ssize_t cb, n;
 
     int yes = 1, ch;
@@ -638,10 +640,10 @@ main(int argc, char** argv)
 	    g_config_server_logdir = strdup(optarg);
 	    break;
 	case 'p':
-	    g_config_server_port = strtoul(optarg, NULL, 10);
+	    g_config_listen_port_str = strdup(optarg);
 	    break;
 	case 'L':
-	    g_config_server_addr = strdup(optarg);
+	    g_config_listen_addr = strdup(optarg);
 	    break;
 	}
     }
@@ -660,9 +662,7 @@ main(int argc, char** argv)
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
 
-    snprintf(sport, sizeof(sport), "%d", g_config_server_port);
-
-    err = getaddrinfo(NULL, sport, &hints, &res0);
+    err = getaddrinfo(NULL, g_config_listen_port_str, &hints, &res0);
     if (err) {
         return -1;
     }

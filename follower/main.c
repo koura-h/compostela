@@ -509,12 +509,8 @@ sc_follow_context_run(sc_follow_context* cxt, sc_message** presp)
 
         if (cxt->ftimestamp) {
             time_t t;
-            time(&t);
             cb0 = __w3cdatetime(msgbuf->content, BUFSIZE, t);
         }
-        msgbuf->content[cb0++] = ' ';
-        msgbuf->content[cb0] = '\0';
-
         cb = _sc_follow_context_read_line(cxt, msgbuf->content + cb0, BUFSIZE - cb0);
         if (cb == 0) {
             // EOF, wait for the new available data.
