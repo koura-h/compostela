@@ -24,7 +24,7 @@
 enum { MAX_SOCKETS = 10 };
 enum { MAX_EVENTS = 10 };
 
-enum { BUFSIZE = 2048 };
+enum { BUFSIZE = 8192 };
 
 int g_config_default_mode = 0644;
 
@@ -473,9 +473,9 @@ handler_pos(sc_message* msg, sc_connection* conn, sc_channel* channel)
 int
 do_receive(int epfd, sc_connection* conn)
 {
-    ssize_t csize = 2048, n;
+    ssize_t n;
     int16_t code = 0;
-    sc_message* msg = sc_message_new(csize);
+    sc_message* msg = sc_message_new(BUFSIZE);
     sc_channel* channel = NULL;
 
     int c = conn->socket;
@@ -548,7 +548,7 @@ run_main(int* socks, int num_socks)
     struct epoll_event ev, events[MAX_EVENTS];
     int epfd, i, j;
 
-    char buf[2048];
+    // char buf[2048];
     ssize_t n;
     sc_connection *conn = NULL;
 
@@ -617,7 +617,7 @@ main(int argc, char** argv)
     int err;
     int s[MAX_SOCKETS], nsock, i, c;
 
-    char buf[2048], *conf = NULL, sport[16];
+    char *conf = NULL, sport[16];
     ssize_t cb, n;
 
     int yes = 1, ch;
