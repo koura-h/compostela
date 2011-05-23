@@ -7,6 +7,7 @@
 #include "appconfig.h"
 
 char* g_config_server_logdir = NULL;
+char* g_config_server_addr = NULL;
 int g_config_server_port = 0;
 
 int
@@ -111,4 +112,6 @@ clean_config()
 {
     free(g_config_server_logdir);
     g_config_server_logdir = NULL;
+    free(g_config_server_addr);
+    g_config_server_addr = NULL;
 }
