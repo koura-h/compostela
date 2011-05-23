@@ -26,7 +26,7 @@
 #include "config.h"
 
 
-enum { BUFSIZE = 8196 };
+enum { BUFSIZE = 8192 };
 
 
 typedef struct _sc_follow_context {
@@ -204,7 +204,7 @@ sc_aggregator_connection_send_message(sc_aggregator_connection* conn, sc_message
     int ret = 0;
     int32_t len = ntohl(msg->length);
 
-    fprintf(stderr, "send_message: code = %d, channel = %d, length = %lx\n", ntohs(msg->code), ntohs(msg->channel), len);
+    fprintf(stderr, "send_message: code = %d, channel = %d, length = %ld\n", ntohs(msg->code), ntohs(msg->channel), len);
     if ((ret = sendall(conn->socket, msg, len + offsetof(sc_message, content), 0)) <= 0) {
         close(conn->socket);
 	conn->socket = -1;
