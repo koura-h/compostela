@@ -26,9 +26,6 @@ dump_mhash(const unsigned char* mhash, size_t mhash_size);
 int
 set_sigpipe_handler();
 
-size_t
-__w3cdatetime(char* buf, size_t sz, time_t t);
-
 #if defined(__cplusplus)
 }
 #endif

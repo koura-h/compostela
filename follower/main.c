@@ -508,8 +508,11 @@ sc_follow_context_run(sc_follow_context* cxt, sc_message** presp)
         }
 
         if (cxt->ftimestamp) {
+            struct tm tm;
             time_t t;
-            cb0 = __w3cdatetime(msgbuf->content, BUFSIZE, t);
+            time(&t);
+            localtime_r(&t, &tm);
+            cb0 = strftime(msgbuf->content, BUFSIZE, "%b %d %T ", &tm);
         }
         cb = _sc_follow_context_read_line(cxt, msgbuf->content + cb0, BUFSIZE - cb0);
         if (cb == 0) {
