@@ -8,22 +8,22 @@
 
 ////////////////////
 
-sc_message*
-sc_message_new(ssize_t content_size)
+sc_message_0*
+sc_message_0_new(ssize_t content_size)
 {
-    sc_message *msg = (sc_message*)malloc(offsetof(sc_message, content) + content_size);
+    sc_message_0 *msg = (sc_message_0*)malloc(offsetof(sc_message_0, content) + content_size);
     return msg;
 }
 
 void
-sc_message_destroy(sc_message* msg)
+sc_message_0_destroy(sc_message_0* msg)
 {
     free(msg);
 }
 
-sc_message*
-sc_message_resize(sc_message* msg, ssize_t newsize)
+sc_message_0*
+sc_message_0_resize(sc_message_0* msg, ssize_t newsize)
 {
-    sc_message *ret = (sc_message*)realloc(msg, offsetof(sc_message, content) + newsize);
+    sc_message_0 *ret = (sc_message_0*)realloc(msg, offsetof(sc_message_0, content) + newsize);
     return ret;
 }

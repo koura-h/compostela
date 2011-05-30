@@ -28,14 +28,14 @@
 int
 sc_follow_context_sync_file(sc_follow_context *cxt)
 {
-    sc_message *msg, *resp;
+    sc_message_0 *msg, *resp;
     size_t n = strlen(cxt->displayName);
     int64_t stlen = 0;
     int32_t attr = 0, len = 0;
 
     sc_log(LOG_DEBUG, ">>> INIT: started");
 
-    msg = sc_message_new(n + sizeof(int32_t));
+    msg = sc_message_0_new(n + sizeof(int32_t));
     if (!msg) {
         return -1;
     }
@@ -123,7 +123,7 @@ _sc_follow_context_init(sc_follow_context* cxt, const char* dispname, int ftimes
     cxt->ftimestamp = ftimestamp;
 
     cxt->buffer = az_buffer_new(bufsize);
-    cxt->message_buffer = sc_message_new(bufsize);
+    cxt->message_buffer = sc_message_0_new(bufsize);
     cxt->message_buffer->code = htons(SCM_MSG_NONE);
 
     return cxt;
@@ -211,7 +211,7 @@ sc_follow_context_reset(sc_follow_context* cxt)
 int
 sc_follow_context_close(sc_follow_context* cxt)
 {
-    sc_message* msg = NULL, *resp = NULL;
+    sc_message_0* msg = NULL, *resp = NULL;
     int ret;
 
     sc_log(LOG_DEBUG, "context close");
@@ -226,7 +226,7 @@ sc_follow_context_close(sc_follow_context* cxt)
 	return -1;
     }
 
-    msg = sc_message_new(sizeof(int32_t));
+    msg = sc_message_0_new(sizeof(int32_t));
     msg->code    = htons(SCM_MSG_RELE);
     msg->channel = htons(cxt->channel);
     msg->length  = htonl(sizeof(int32_t));
@@ -235,16 +235,16 @@ sc_follow_context_close(sc_follow_context* cxt)
     if ((ret = sc_aggregator_connection_send_message(cxt->connection, msg)) != 0) {
 	// connection broken
 	sc_log(LOG_DEBUG, "RELE: connection has broken.");
-	sc_message_destroy(msg);
+	sc_message_0_destroy(msg);
 	return 1001;
     }
 
     if ((ret = sc_aggregator_connection_receive_message(cxt->connection, &resp)) != 0) {
 	sc_log(LOG_DEBUG, "RELE: connection has broken. (on receiving) = %d", ret);
-	sc_message_destroy(msg);
+	sc_message_0_destroy(msg);
 	return 1001;
     }
-    sc_message_destroy(msg);
+    sc_message_0_destroy(msg);
 
     return 0;
 }
@@ -253,7 +253,7 @@ sc_follow_context_close(sc_follow_context* cxt)
 void
 sc_follow_context_destroy(sc_follow_context* cxt)
 {
-    sc_message_destroy(cxt->message_buffer);
+    sc_message_0_destroy(cxt->message_buffer);
     az_buffer_destroy(cxt->buffer);
 
     free(cxt->filename);

@@ -120,14 +120,14 @@ static int g_conn_controller = -1;
 static int
 _sync_file(sc_follow_context *cxt)
 {
-    sc_message *msg, *resp;
+    sc_message_0 *msg, *resp;
     size_t n = strlen(cxt->displayName);
     int64_t stlen = 0;
     int32_t attr = 0, len = 0;
 
     sc_log(LOG_DEBUG, ">>> INIT: started");
 
-    msg = sc_message_new(n + sizeof(int32_t));
+    msg = sc_message_0_new(n + sizeof(int32_t));
     if (!msg) {
         return -1;
     }
@@ -193,7 +193,7 @@ _sync_file(sc_follow_context *cxt)
 }
 
 static int
-_sc_follow_context_proc_data(sc_follow_context* cxt, sc_message* msg, sc_message** ppresp)
+_sc_follow_context_proc_data(sc_follow_context* cxt, sc_message_0* msg, sc_message_0** ppresp)
 {
     int ret;
     *ppresp = NULL;
@@ -213,7 +213,7 @@ _sc_follow_context_proc_data(sc_follow_context* cxt, sc_message* msg, sc_message
 }
 
 static int
-_sc_follow_context_proc_rele(sc_follow_context* cxt, sc_message* msg, sc_message** ppresp)
+_sc_follow_context_proc_rele(sc_follow_context* cxt, sc_message_0* msg, sc_message_0** ppresp)
 {
     int ret = 0;
     *ppresp = NULL;
@@ -285,16 +285,16 @@ _sc_follow_context_read_line(sc_follow_context* cxt, char* dst, size_t dsize)
  *          <0 ... error occurred.
  */
 static int
-_run_follow_context(sc_follow_context* cxt, sc_message** presp)
+_run_follow_context(sc_follow_context* cxt, sc_message_0** presp)
 {
-    // sc_message* msg = sc_message_new(csize), *resp = NULL;
+    // sc_message_0* msg = sc_message_0_new(csize), *resp = NULL;
     int ret = 0, cb = 0, cb0 = 0;
     off_t cur;
 
     assert(presp != NULL);
     *presp = NULL;
 
-    sc_message* msgbuf = cxt->message_buffer;
+    sc_message_0* msgbuf = cxt->message_buffer;
 
     sc_log(LOG_DEBUG, "context run");
     if (!sc_aggregator_connection_is_opened(cxt->connection)) {
@@ -579,7 +579,7 @@ main(int argc, char** argv)
     sc_follow_context *cxt = NULL;
 
     int ret, ch, i, epfd;
-    sc_message *resp;
+    sc_message_0 *resp;
     char *conf = NULL;
 
     struct option long_opts[] = {
@@ -654,7 +654,7 @@ main(int argc, char** argv)
 	    }
 
             // here, we proceed response from aggregator
-            sc_message_destroy(resp);
+            sc_message_0_destroy(resp);
 	}
 
 	if (rc) {

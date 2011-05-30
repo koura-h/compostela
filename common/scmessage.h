@@ -14,12 +14,12 @@ enum {
     SCM_RESP_OK = 1001,
 };
 
-typedef struct _sc_message {
+typedef struct _sc_message_0 {
     int16_t code;
     int16_t channel;
     int32_t length;
     char    content[1];
-} sc_message;
+} sc_message_0;
 
 
 typedef struct _scm_response_init {
@@ -33,11 +33,11 @@ typedef struct _scm_command_pos {
 extern "C" {
 #endif
 
-sc_message* sc_message_new(ssize_t content_size);
+sc_message_0* sc_message_0_new(ssize_t content_size);
 
-void sc_message_destroy(sc_message* msg);
+void sc_message_0_destroy(sc_message_0* msg);
 
-sc_message* sc_message_resize(sc_message* msg, ssize_t newsize);
+sc_message_0* sc_message_0_resize(sc_message_0* msg, ssize_t newsize);
 
 #if defined(__cplusplus)
 }
