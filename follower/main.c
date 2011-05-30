@@ -20,6 +20,7 @@
 
 #include "azlist.h"
 #include "azbuffer.h"
+#include "azlog.h"
 
 #include "scmessage.h"
 #include "supports.h"
@@ -29,8 +30,6 @@
 
 #include "appconfig.h"
 #include "config.h"
-
-#include "sclog.h"
 
 /////
 
@@ -125,7 +124,7 @@ _sync_file(sc_follow_context *cxt)
     int64_t stlen = 0;
     int32_t attr = 0, len = 0;
 
-    sc_log(LOG_DEBUG, ">>> INIT: started");
+    az_log(LOG_DEBUG, ">>> INIT: started");
 
     msg = sc_message_0_new(n + sizeof(int32_t));
     if (!msg) {
@@ -144,17 +143,17 @@ _sync_file(sc_follow_context *cxt)
 
     // send_message
     if (sc_aggregator_connection_send_message(cxt->connection, msg) != 0) {
-        sc_log(LOG_DEBUG, "INIT: connection has broken.");
+        az_log(LOG_DEBUG, "INIT: connection has broken.");
         return -1;
     }
 
     if (sc_aggregator_connection_receive_message(cxt->connection, &resp) != 0) {
-        sc_log(LOG_DEBUG, "INIT: connection has broken. (on receiving)");
+        az_log(LOG_DEBUG, "INIT: connection has broken. (on receiving)");
         return -3;
     }
 
     if (ntohs(resp->code) != SCM_RESP_OK) {
-        sc_log(LOG_DEBUG, ">>> INIT: failed (code=%d)", ntohs(resp->code));
+        az_log(LOG_DEBUG, ">>> INIT: failed (code=%d)", ntohs(resp->code));
         return -4;
     }
     cxt->channel = htons(resp->channel);
@@ -163,7 +162,7 @@ _sync_file(sc_follow_context *cxt)
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     stlen = bswap_64(stlen);
 #endif
-    sc_log(LOG_DEBUG, ">>> INIT: len = %d", len);
+    az_log(LOG_DEBUG, ">>> INIT: len = %d", len);
     if (len > sizeof(int64_t)) {
         unsigned char* buf, *p;
         size_t bufsize, psize;
@@ -174,21 +173,21 @@ _sync_file(sc_follow_context *cxt)
         mhash_with_size(cxt->filename, stlen, &buf, &bufsize);
         if (buf) {
             if (psize != bufsize || memcmp(p, buf, bufsize) != 0) {
-                sc_log(LOG_DEBUG, "mhash invalid!!!");
+                az_log(LOG_DEBUG, "mhash invalid!!!");
                 exit(-1);
             } else {
-                sc_log(LOG_DEBUG, "mhash check: OK");
+                az_log(LOG_DEBUG, "mhash check: OK");
             }
             free(buf);
         } else {
-            sc_log(LOG_DEBUG, "mhash not found");
+            az_log(LOG_DEBUG, "mhash not found");
         }
     }
-    sc_log(LOG_DEBUG, "channel id = %d", cxt->channel);
-    sc_log(LOG_DEBUG, "stlen = %d", stlen);
+    az_log(LOG_DEBUG, "channel id = %d", cxt->channel);
+    az_log(LOG_DEBUG, "stlen = %d", stlen);
     lseek(cxt->_fd, stlen, SEEK_SET);
 
-    sc_log(LOG_DEBUG, ">>> INIT: finished");
+    az_log(LOG_DEBUG, ">>> INIT: finished");
     return 0;
 }
 
@@ -200,12 +199,12 @@ _sc_follow_context_proc_data(sc_follow_context* cxt, sc_message_0* msg, sc_messa
 
     if ((ret = sc_aggregator_connection_send_message(cxt->connection, msg)) != 0) {
 	// connection broken
-	sc_log(LOG_DEBUG, "DATA: connection has broken.");
+	az_log(LOG_DEBUG, "DATA: connection has broken.");
 	return ret;
     }
 
     if ((ret = sc_aggregator_connection_receive_message(cxt->connection, ppresp)) != 0) {
-	sc_log(LOG_DEBUG, "DATA: connection has broken. (on receiving) = %d", ret);
+	az_log(LOG_DEBUG, "DATA: connection has broken. (on receiving) = %d", ret);
 	return ret;
     }
 
@@ -220,12 +219,12 @@ _sc_follow_context_proc_rele(sc_follow_context* cxt, sc_message_0* msg, sc_messa
 
     if ((ret = sc_aggregator_connection_send_message(cxt->connection, msg)) != 0) {
 	// connection broken
-	sc_log(LOG_DEBUG, "RELE: connection has broken.");
+	az_log(LOG_DEBUG, "RELE: connection has broken.");
 	return ret;
     }
 
     if ((ret = sc_aggregator_connection_receive_message(cxt->connection, ppresp)) != 0) {
-	sc_log(LOG_DEBUG, "RELE: connection has broken. (on receiving) = %d", ret);
+	az_log(LOG_DEBUG, "RELE: connection has broken. (on receiving) = %d", ret);
 	// reconnect
 	return ret;
     }
@@ -240,7 +239,7 @@ _sc_follow_context_read_line(sc_follow_context* cxt, char* dst, size_t dsize)
     char* p = dst;
     size_t u;
 
-    sc_log(LOG_DEBUG, ">>> _sc_follow_context_read_line");
+    az_log(LOG_DEBUG, ">>> _sc_follow_context_read_line");
 
     if (az_buffer_unread_bytes(cxt->buffer) == 0) {
         az_buffer_reset(cxt->buffer);
@@ -265,7 +264,7 @@ _sc_follow_context_read_line(sc_follow_context* cxt, char* dst, size_t dsize)
                 n = 0;
             }
 	    m = az_buffer_push_back(cxt->buffer, p, dst + dsize - p);
-	    sc_log(LOG_DEBUG, "cxt = %p (at %s)", cxt, cxt->filename);
+	    az_log(LOG_DEBUG, "cxt = %p (at %s)", cxt, cxt->filename);
 	    assert(m == 0);
 	    return n;
 	}
@@ -273,7 +272,7 @@ _sc_follow_context_read_line(sc_follow_context* cxt, char* dst, size_t dsize)
 
     p += u;
     *p = '\0';
-    sc_log(LOG_DEBUG, "<<< _sc_follow_context_read_line (%s)", dst);
+    az_log(LOG_DEBUG, "<<< _sc_follow_context_read_line (%s)", dst);
     return p - dst;
 }
 
@@ -296,17 +295,17 @@ _run_follow_context(sc_follow_context* cxt, sc_message_0** presp)
 
     sc_message_0* msgbuf = cxt->message_buffer;
 
-    sc_log(LOG_DEBUG, "context run");
+    az_log(LOG_DEBUG, "context run");
     if (!sc_aggregator_connection_is_opened(cxt->connection)) {
         // disconnected. but show must go on.
-	sc_log(LOG_DEBUG, ">>> %s: PLEASE RECONNECT NOW!", __FUNCTION__);
+	az_log(LOG_DEBUG, ">>> %s: PLEASE RECONNECT NOW!", __FUNCTION__);
 	return 1001;
     }
 
     if (msgbuf->code == htons(SCM_MSG_NONE)) {
         if (cxt->_fd <= 0) {
             if (sc_follow_context_open_file(cxt) != 0) {
-                sc_log(LOG_DEBUG, "sc_follow_context_run: not opened yet => [%s]", cxt->filename);
+                az_log(LOG_DEBUG, "sc_follow_context_run: not opened yet => [%s]", cxt->filename);
                 return 1;
             }
             _sync_file(cxt);
@@ -330,7 +329,7 @@ _run_follow_context(sc_follow_context* cxt, sc_message_0** presp)
         }
 
         assert(cxt->channel != 0);
-        sc_log(LOG_DEBUG, "reading file...");
+        az_log(LOG_DEBUG, "reading file...");
 
         msgbuf->code    = htons(SCM_MSG_DATA);
         msgbuf->channel = htons(cxt->channel);
@@ -339,7 +338,7 @@ _run_follow_context(sc_follow_context* cxt, sc_message_0** presp)
 
     if (_sc_follow_context_proc_data(cxt, msgbuf, presp) != 0) {
 	// should reconnect
-	sc_log(LOG_DEBUG, "You should reconnect now");
+	az_log(LOG_DEBUG, "You should reconnect now");
 	return 1001;
     }
 
@@ -406,7 +405,7 @@ _do_receive_data(int c, const void *data, size_t dlen, void* info)
     size_t u;
     int n, ret = 0;
 
-    sc_log(LOG_DEBUG, "data = %p, dlen = %d", data, dlen);
+    az_log(LOG_DEBUG, "data = %p, dlen = %d", data, dlen);
 
     if (az_buffer_unread_bytes(contr->buffer) == 0) {
         az_buffer_reset(contr->buffer);
@@ -419,7 +418,7 @@ _do_receive_data(int c, const void *data, size_t dlen, void* info)
         if (contr->f_direct) {
             fprintf(stdout, "direct: [%s]\n", line);
         } else {
-            sc_log(LOG_DEBUG, "line = [%s]", line);
+            az_log(LOG_DEBUG, "line = [%s]", line);
             if (strncmp(line, "OPEN ", 5) == 0) {
                 _do_controller_direct_open_with_line(line, sizeof(line), contr);
 
@@ -442,7 +441,7 @@ do_receive(int epfd, int c, void* info)
     ssize_t n;
     int16_t code = 0;
 
-    sc_log(LOG_DEBUG, ">>> do_receive");
+    az_log(LOG_DEBUG, ">>> do_receive");
 
     unsigned char* databuf = (unsigned char*)malloc(BUFSIZE);
     
@@ -456,7 +455,7 @@ do_receive(int epfd, int c, void* info)
     } else if (n == 0) {
         struct epoll_event ev;
 
-        sc_log(LOG_DEBUG, "connection closed");
+        az_log(LOG_DEBUG, "connection closed");
 
         epoll_ctl(epfd, EPOLL_CTL_DEL, c, NULL);
 
@@ -466,7 +465,7 @@ do_receive(int epfd, int c, void* info)
     } else {
         struct epoll_event ev;
 
-        sc_log(LOG_DEBUG, "recvall error.");
+        az_log(LOG_DEBUG, "recvall error.");
 
         epoll_ctl(epfd, EPOLL_CTL_DEL, c, NULL);
 
@@ -475,7 +474,7 @@ do_receive(int epfd, int c, void* info)
         sc_controller_destroy(contr);
     }
 
-    sc_log(LOG_DEBUG, "<<< do_receive");
+    az_log(LOG_DEBUG, "<<< do_receive");
 
     free(databuf);
     return 0;
@@ -489,7 +488,7 @@ setup_epoll(int* socks, int num_socks)
     struct epoll_event ev;
 
     if ((epfd = epoll_create(MAX_EVENTS)) < 0) {
-        sc_log(LOG_DEBUG, "epoll_create error");
+        az_log(LOG_DEBUG, "epoll_create error");
         return -1;
     }
 
@@ -538,7 +537,7 @@ do_server_socket(int epfd, int* socks, int num_socks)
                         }
                     }
 
-                    sc_log(LOG_DEBUG, "accepted");
+                    az_log(LOG_DEBUG, "accepted");
 
                     // conn = sc_connection_new((struct sockaddr*)&ss, sslen, c);
                     contr = sc_controller_new(c);
@@ -548,7 +547,7 @@ do_server_socket(int epfd, int* socks, int num_socks)
                     // ev.data.ptr = conn;
                     ev.data.ptr = contr;
                     if (epoll_ctl(epfd, EPOLL_CTL_ADD, c, &ev) < 0) {
-                        sc_log(LOG_DEBUG, "epoll set insertion error: fd = %d", c);
+                        az_log(LOG_DEBUG, "epoll set insertion error: fd = %d", c);
                         continue;
                     }
                     done = 1;
@@ -613,13 +612,13 @@ main(int argc, char** argv)
     free(conf);
 
     if (!g_config_server_address) {
-        sc_log(LOG_DEBUG, "error: server address is not assigned.");
+        az_log(LOG_DEBUG, "error: server address is not assigned.");
         exit(1);
     }
 
     g_connection = sc_aggregator_connection_new(g_config_server_address, g_config_server_port);
     sc_aggregator_connection_open(g_connection);
-    sc_log(LOG_DEBUG, "conn = %p", g_connection);
+    az_log(LOG_DEBUG, "conn = %p", g_connection);
 
     g_conn_controller = setup_server_unix_socket(PATH_CONTROL);
 
@@ -677,7 +676,7 @@ void
 handler_alarm(int sig, siginfo_t* sinfo, void* ptr)
 {
     struct itimerval itimer = {};
-    sc_log(LOG_DEBUG, ">>> %s: BEGIN", __FUNCTION__);
+    az_log(LOG_DEBUG, ">>> %s: BEGIN", __FUNCTION__);
 
     do_rotate(g_connection);
 
@@ -690,7 +689,7 @@ handler_alarm(int sig, siginfo_t* sinfo, void* ptr)
     itimer.it_value = itimer.it_interval;
     assert(setitimer(ITIMER_REAL, &itimer, 0) == 0);
 
-    sc_log(LOG_DEBUG, ">>> %s: END", __FUNCTION__);
+    az_log(LOG_DEBUG, ">>> %s: END", __FUNCTION__);
 }
 
 int
@@ -707,7 +706,7 @@ set_rotation_timer()
 
 #if 0
     secs_left = get_seconds_left_in_today();
-    sc_log(LOG_DEBUG, "secs_left = %lf", secs_left);
+    az_log(LOG_DEBUG, "secs_left = %lf", secs_left);
 
     itimer.it_interval.tv_sec = secs_left;
 #else
@@ -750,7 +749,7 @@ do_rotate(sc_aggregator_connection_ref conn)
 	} else {
 	    strcpy(dn, basename(fn));
 	}
-        sc_log(LOG_DEBUG, "fname = [%s] / dispname = [%s]", fn, dn);
+        az_log(LOG_DEBUG, "fname = [%s] / dispname = [%s]", fn, dn);
 
         not_found = 1;
         for (li = g_context_list; not_found && li; li = li->next) {
@@ -763,7 +762,7 @@ do_rotate(sc_aggregator_connection_ref conn)
 		    // displayName has rotated.
 		    sc_follow_context_close(cxt);
 		}
-                sc_log(LOG_DEBUG, "=== already following now.", fn, dn);
+                az_log(LOG_DEBUG, "=== already following now.", fn, dn);
                 break;
             }
         }
@@ -771,7 +770,7 @@ do_rotate(sc_aggregator_connection_ref conn)
         if (not_found) {
             cxt = sc_follow_context_new(fn, dn, pe->append_timestamp, BUFSIZE, conn);
             g_context_list = az_list_add(g_context_list, cxt);
-            sc_log(LOG_DEBUG, "added: new follow_context");
+            az_log(LOG_DEBUG, "added: new follow_context");
         }
     }
 
@@ -804,7 +803,7 @@ do_rotate(sc_aggregator_connection_ref conn)
         if (not_found) {
             cxt = sc_follow_context_new_with_fd(contr->socket_fd, dn, 1, BUFSIZE, conn);
             g_context_list = az_list_add(g_context_list, cxt);
-            sc_log(LOG_DEBUG, "added: new follow_context => displayName: %s", dn);
+            az_log(LOG_DEBUG, "added: new follow_context => displayName: %s", dn);
         }
     }
 }

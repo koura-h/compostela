@@ -15,7 +15,7 @@
 #include <openssl/md5.h>
 
 #include "supports.h"
-#include "sclog.h"
+#include "azlog.h"
 
 
 char*
@@ -180,7 +180,7 @@ dump_mhash(const unsigned char* mhash, size_t mhash_size)
 void
 handler_sigpipe(int sig, siginfo_t* sinfo, void* ptr)
 {
-    sc_log(LOG_DEBUG, ">>> SIGPIPE raised!");
+    az_log(LOG_DEBUG, ">>> SIGPIPE raised!");
 }
 
 int

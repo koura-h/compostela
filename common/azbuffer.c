@@ -4,7 +4,7 @@
 #include <string.h>
 #include <assert.h>
 #include "azbuffer.h"
-#include "sclog.h"
+#include "azlog.h"
 
 
 struct _az_buffer {

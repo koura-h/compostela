@@ -18,12 +18,12 @@
 
 #include "scmessage.h"
 #include "supports.h"
+
 #include "azlist.h"
+#include "azlog.h"
 
 #include "appconfig.h"
 #include "config.h"
-
-#include "sclog.h"
 
 enum { MAX_SOCKETS = 10 };
 enum { MAX_EVENTS = 10 };
@@ -80,7 +80,7 @@ sc_channel_new(const char* fname, sc_connection* conn)
         if (fname) {
 	    channel->filename = strdup(fname);
 	    channel->__filename_fullpath = pathcat(g_config_server_logdir, conn->remote_addr, fname, NULL);
-	    sc_log(LOG_DEBUG, "__filename_fullpath = %s", channel->__filename_fullpath);
+	    az_log(LOG_DEBUG, "__filename_fullpath = %s", channel->__filename_fullpath);
 	}
 	channel->connection = conn;
     }
@@ -90,11 +90,11 @@ sc_channel_new(const char* fname, sc_connection* conn)
 void
 sc_channel_destroy(sc_channel* channel)
 {
-    sc_log(LOG_DEBUG, ">>> %s", __func__);
+    az_log(LOG_DEBUG, ">>> %s", __func__);
     free(channel->__filename_fullpath);
     free(channel->filename);
     free(channel);
-    sc_log(LOG_DEBUG, "<<< %s", __func__);
+    az_log(LOG_DEBUG, "<<< %s", __func__);
 }
 
 ////////////////////////////////////////
@@ -133,10 +133,10 @@ sc_connection_set_remote_addr(sc_connection* conn, struct sockaddr* sa, socklen_
 	int err;
 	char hbuf[NI_MAXHOST];
 	if ((err = getnameinfo(sa, salen, hbuf, sizeof(hbuf), NULL, 0, NI_NUMERICHOST))) {
-	    sc_log(LOG_DEBUG, "gai_strerror = [%s]", gai_strerror(err));
+	    az_log(LOG_DEBUG, "gai_strerror = [%s]", gai_strerror(err));
 	    return;
         }
-        sc_log(LOG_DEBUG, "accept connection from [%s]", hbuf);
+        az_log(LOG_DEBUG, "accept connection from [%s]", hbuf);
         conn->remote_addr = strdup(hbuf);
     }
 }
@@ -147,13 +147,13 @@ sc_connection_destroy(sc_connection* conn)
     sc_channel* c;
     az_list* li;
 
-    sc_log(LOG_DEBUG, ">>> %s", __func__);
+    az_log(LOG_DEBUG, ">>> %s", __func__);
     for (li = conn->channel_list; li; li = li->next) {
         sc_channel_destroy(li->object);
     }
     az_list_delete_all(conn->channel_list);
 
-    sc_log(LOG_DEBUG, "<<< %s", __func__);
+    az_log(LOG_DEBUG, "<<< %s", __func__);
 
     free(conn->remote_addr);
     free(conn->sockaddr);
@@ -209,10 +209,10 @@ sc_connection_delete_channel(sc_connection* conn, sc_channel* channel)
 void
 _dump(sc_message_0* msg)
 {
-    sc_log(LOG_DEBUG, ">>>DATA");
+    az_log(LOG_DEBUG, ">>>DATA");
     fwrite(&msg->content, msg->length, 1, stderr);
     // fflush(stderr);
-    sc_log(LOG_DEBUG, "<<<DATA");
+    az_log(LOG_DEBUG, "<<<DATA");
 }
 
 int
@@ -257,7 +257,7 @@ _do_merge_file(const char* host, const char* path, const char *data, size_t len)
     char fullp[PATH_MAX];
 
     __mk_path(g_config_server_logdir, path, fullp, sizeof(fullp));
-    sc_log(LOG_DEBUG, "merging to ... [%s]", fullp);
+    az_log(LOG_DEBUG, "merging to ... [%s]", fullp);
 
     fd = open(fullp, O_APPEND | O_RDWR | O_CREAT, g_config_default_mode);
     if (fd == -1) {
@@ -280,7 +280,7 @@ _do_append_file(const char* path, const char *data, size_t len)
     char dir[PATH_MAX];
 
     strcpy(dir, path);
-    sc_log(LOG_DEBUG, "appending to ... [%s]", path);
+    az_log(LOG_DEBUG, "appending to ... [%s]", path);
 
     _create_dir(dirname(dir), 0777);
 
@@ -363,8 +363,8 @@ handler_init(sc_message_0* msg, sc_connection* conn)
 
 	dump_mhash(mhash, mhash_size);
 
-        sc_log(LOG_DEBUG, "channel->filename = %s", channel->filename);
-        sc_log(LOG_DEBUG, "conn->remote_addr = %s", conn->remote_addr);
+        az_log(LOG_DEBUG, "channel->filename = %s", channel->filename);
+        az_log(LOG_DEBUG, "conn->remote_addr = %s", conn->remote_addr);
     }
 
     sc_connection_register_channel(conn, channel);
@@ -394,12 +394,12 @@ handler_data(sc_message_0* msg, sc_connection* conn, sc_channel* channel)
     int n;
     // char path[PATH_MAX];
 
-    sc_log(LOG_DEBUG, ">>> handler_data");
+    az_log(LOG_DEBUG, ">>> handler_data");
 
     // __mk_path(conn->remote_addr, channel->filename, path, sizeof(path));
 
     sc_message_0* ok = sc_message_0_new(sizeof(int32_t));
-    sc_log(LOG_DEBUG, "channel_id = %d", msg->channel);
+    az_log(LOG_DEBUG, "channel_id = %d", msg->channel);
     _do_merge_file(conn->remote_addr, channel->filename, msg->content, msg->length);
     _do_append_file(channel->__filename_fullpath, msg->content, msg->length);
 
@@ -442,7 +442,7 @@ handler_pos(sc_message_0* msg, sc_connection* conn, sc_channel* channel)
     // char path[PATH_MAX];
     int64_t pos;
 
-    sc_log(LOG_DEBUG, ">>> handler_pos");
+    az_log(LOG_DEBUG, ">>> handler_pos");
 
     // __mk_path(conn->remote_addr, channel->filename, path, sizeof(path));
 
@@ -481,10 +481,10 @@ do_receive(int epfd, sc_connection* conn)
         msg->code    = ntohs(msg->code);
 	msg->channel = ntohs(msg->channel);
         msg->length  = ntohl(msg->length);
-	sc_log(LOG_DEBUG, "n = %d, code = %d, channel = %d, length = %d", n, msg->code, msg->channel, msg->length);
+	az_log(LOG_DEBUG, "n = %d, code = %d, channel = %d, length = %d", n, msg->code, msg->channel, msg->length);
 	if (msg->length > 0) {
             n = recvall(c, &msg->content, msg->length, 0);
-	    sc_log(LOG_DEBUG, "n = %d", n, msg->code, msg->channel, msg->length);
+	    az_log(LOG_DEBUG, "n = %d", n, msg->code, msg->channel, msg->length);
 	}
 
 	code = msg->code;
@@ -494,7 +494,7 @@ do_receive(int epfd, sc_connection* conn)
 
         channel = sc_connection_channel(conn, msg->channel);
 	if (!channel) {
-	    sc_log(LOG_DEBUG, "conn=%p, I might be happened to restart?", conn);
+	    az_log(LOG_DEBUG, "conn=%p, I might be happened to restart?", conn);
 	    assert(code == SCM_MSG_INIT);
 	}
 
@@ -515,7 +515,7 @@ do_receive(int epfd, sc_connection* conn)
     } else if (n == 0) {
         struct epoll_event ev;
 
-        sc_log(LOG_DEBUG, "connection closed");
+        az_log(LOG_DEBUG, "connection closed");
 
 	epoll_ctl(epfd, EPOLL_CTL_DEL, c, NULL);
 
@@ -525,7 +525,7 @@ do_receive(int epfd, sc_connection* conn)
     } else {
         struct epoll_event ev;
 
-        sc_log(LOG_DEBUG, "recvall error.");
+        az_log(LOG_DEBUG, "recvall error.");
 
 	epoll_ctl(epfd, EPOLL_CTL_DEL, c, NULL);
 
@@ -550,10 +550,10 @@ run_main(int* socks, int num_socks)
 
     int done = 0;
 
-    // sc_log(LOG_DEBUG, "num_socks = %d", num_socks);
+    // az_log(LOG_DEBUG, "num_socks = %d", num_socks);
 
     if ((epfd = epoll_create(MAX_EVENTS)) < 0) {
-        sc_log(LOG_DEBUG, "epoll_create error");
+        az_log(LOG_DEBUG, "epoll_create error");
         return -1;
     }
 
@@ -589,7 +589,7 @@ run_main(int* socks, int num_socks)
 		    ev.events = EPOLLIN | EPOLLET;
 		    ev.data.ptr = conn;
 		    if (epoll_ctl(epfd, EPOLL_CTL_ADD, c, &ev) < 0) {
-		        sc_log(LOG_DEBUG, "epoll set insertion error: fd = %d", c);
+		        az_log(LOG_DEBUG, "epoll set insertion error: fd = %d", c);
 			continue;
 		    }
 		    done = 1;
@@ -698,7 +698,7 @@ void
 handler_alarm(int sig, siginfo_t* sinfo, void* ptr)
 {
     struct itimerval itimer = {};
-    sc_log(LOG_DEBUG, ">>> %s: BEGIN", __FUNCTION__);
+    az_log(LOG_DEBUG, ">>> %s: BEGIN", __FUNCTION__);
 
     // do_rotate(g_connection);
 
@@ -711,7 +711,7 @@ handler_alarm(int sig, siginfo_t* sinfo, void* ptr)
     itimer.it_value = itimer.it_interval;
     assert(setitimer(ITIMER_REAL, &itimer, 0) == 0);
 
-    sc_log(LOG_DEBUG, ">>> %s: END", __FUNCTION__);
+    az_log(LOG_DEBUG, ">>> %s: END", __FUNCTION__);
 }
 
 int
@@ -728,7 +728,7 @@ set_rotation_timer()
 
 #if 0
     secs_left = get_seconds_left_in_today();
-    sc_log(LOG_DEBUG, "secs_left = %lf", secs_left);
+    az_log(LOG_DEBUG, "secs_left = %lf", secs_left);
 
     itimer.it_interval.tv_sec = secs_left;
 #else

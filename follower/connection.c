@@ -9,14 +9,13 @@
 
 #include "azlist.h"
 #include "azbuffer.h"
+#include "azlog.h"
 
 #include "scmessage.h"
 #include "supports.h"
 
 #include "appconfig.h"
 #include "config.h"
-
-#include "sclog.h"
 
 #include "connection.h"
 
@@ -59,7 +58,7 @@ sc_aggregator_connection_open(sc_aggregator_connection* conn)
 
     err = getaddrinfo(conn->host, sport, &hints, &ai0);
     if (err) {
-        sc_log(LOG_DEBUG, "getaddrinfo: %s", gai_strerror(err));
+        az_log(LOG_DEBUG, "getaddrinfo: %s", gai_strerror(err));
         return -1;
     }
 
@@ -103,15 +102,15 @@ sc_aggregator_connection_send_message(sc_aggregator_connection* conn, sc_message
     int ret = 0;
     int32_t len = ntohl(msg->length);
 
-    sc_log(LOG_DEBUG, "send_message: code = %d, channel = %d, length = %ld", ntohs(msg->code), ntohs(msg->channel), len);
+    az_log(LOG_DEBUG, "send_message: code = %d, channel = %d, length = %ld", ntohs(msg->code), ntohs(msg->channel), len);
     if ((ret = sendall(conn->socket, msg, len + offsetof(sc_message_0, content), 0)) <= 0) {
         close(conn->socket);
 	conn->socket = -1;
         perror("sendall");
-        sc_log(LOG_DEBUG, "sending error");
+        az_log(LOG_DEBUG, "sending error");
         return -1;
     }
-    sc_log(LOG_DEBUG, "send_message: done");
+    az_log(LOG_DEBUG, "send_message: done");
 
     return 0;
 }
@@ -131,7 +130,7 @@ sc_aggregator_connection_receive_message(sc_aggregator_connection* conn, sc_mess
         perror("recvall");
         return -1;
     } else if (n == 0) {
-        sc_log(LOG_DEBUG, "closed");
+        az_log(LOG_DEBUG, "closed");
 	return -4;
     }
 

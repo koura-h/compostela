@@ -11,6 +11,7 @@
 
 #include "azlist.h"
 #include "azbuffer.h"
+#include "azlog.h"
 
 #include "scmessage.h"
 #include "supports.h"
@@ -21,7 +22,6 @@
 #include "appconfig.h"
 #include "config.h"
 
-#include "sclog.h"
 
 /////
 
@@ -33,7 +33,7 @@ sc_follow_context_sync_file(sc_follow_context *cxt)
     int64_t stlen = 0;
     int32_t attr = 0, len = 0;
 
-    sc_log(LOG_DEBUG, ">>> INIT: started");
+    az_log(LOG_DEBUG, ">>> INIT: started");
 
     msg = sc_message_0_new(n + sizeof(int32_t));
     if (!msg) {
@@ -52,17 +52,17 @@ sc_follow_context_sync_file(sc_follow_context *cxt)
 
     // send_message
     if (sc_aggregator_connection_send_message(cxt->connection, msg) != 0) {
-	sc_log(LOG_DEBUG, "INIT: connection has broken.");
+	az_log(LOG_DEBUG, "INIT: connection has broken.");
         return -1;
     }
 
     if (sc_aggregator_connection_receive_message(cxt->connection, &resp) != 0) {
-	sc_log(LOG_DEBUG, "INIT: connection has broken. (on receiving)");
+	az_log(LOG_DEBUG, "INIT: connection has broken. (on receiving)");
         return -3;
     }
 
     if (ntohs(resp->code) != SCM_RESP_OK) {
-        sc_log(LOG_DEBUG, ">>> INIT: failed (code=%d)", ntohs(resp->code));
+        az_log(LOG_DEBUG, ">>> INIT: failed (code=%d)", ntohs(resp->code));
         return -4;
     }
     cxt->channel = htons(resp->channel);
@@ -71,7 +71,7 @@ sc_follow_context_sync_file(sc_follow_context *cxt)
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     stlen = bswap_64(stlen);
 #endif
-    sc_log(LOG_DEBUG, ">>> INIT: len = %d", len);
+    az_log(LOG_DEBUG, ">>> INIT: len = %d", len);
     if (len > sizeof(int64_t)) {
         unsigned char* buf, *p;
 	size_t bufsize, psize;
@@ -82,21 +82,21 @@ sc_follow_context_sync_file(sc_follow_context *cxt)
 	mhash_with_size(cxt->filename, stlen, &buf, &bufsize);
 	if (buf) {
 	    if (psize != bufsize || memcmp(p, buf, bufsize) != 0) {
-	        sc_log(LOG_DEBUG, "mhash invalid!!!");
+	        az_log(LOG_DEBUG, "mhash invalid!!!");
 		exit(-1);
 	    } else {
-	        sc_log(LOG_DEBUG, "mhash check: OK");
+	        az_log(LOG_DEBUG, "mhash check: OK");
 	    }
 	    free(buf);
 	} else {
-	    sc_log(LOG_DEBUG, "mhash not found");
+	    az_log(LOG_DEBUG, "mhash not found");
 	}
     }
-    sc_log(LOG_DEBUG, "channel id = %d", cxt->channel);
-    sc_log(LOG_DEBUG, "stlen = %d", stlen);
+    az_log(LOG_DEBUG, "channel id = %d", cxt->channel);
+    az_log(LOG_DEBUG, "stlen = %d", stlen);
     lseek(cxt->_fd, stlen, SEEK_SET);
 
-    sc_log(LOG_DEBUG, ">>> INIT: finished");
+    az_log(LOG_DEBUG, ">>> INIT: finished");
     return 0;
 }
 
@@ -168,13 +168,13 @@ sc_follow_context_open_file(sc_follow_context* cxt)
     int flags;
 
     if (cxt->_fd != -1) {
-        sc_log(LOG_DEBUG, "already opened.");
+        az_log(LOG_DEBUG, "already opened.");
         return -1;
     }
 
     cxt->_fd = open(cxt->filename, O_RDONLY | O_NONBLOCK);
     if (cxt->_fd < 0) {
-        sc_log(LOG_DEBUG, ">>> %s: error (%d)", __FUNCTION__, errno);
+        az_log(LOG_DEBUG, ">>> %s: error (%d)", __FUNCTION__, errno);
         return -1;
     }
 
@@ -214,15 +214,15 @@ sc_follow_context_close(sc_follow_context* cxt)
     sc_message_0* msg = NULL, *resp = NULL;
     int ret;
 
-    sc_log(LOG_DEBUG, "context close");
+    az_log(LOG_DEBUG, "context close");
     if (!sc_aggregator_connection_is_opened(cxt->connection)) {
         // disconnected. but show must go on.
-	sc_log(LOG_DEBUG, ">>> %s: PLEASE RECONNECT NOW!", __FUNCTION__);
+	az_log(LOG_DEBUG, ">>> %s: PLEASE RECONNECT NOW!", __FUNCTION__);
 	return 1001;
     }
 
     if (cxt->_fd < 0) {
-        sc_log(LOG_DEBUG, "already closed.");
+        az_log(LOG_DEBUG, "already closed.");
 	return -1;
     }
 
@@ -234,13 +234,13 @@ sc_follow_context_close(sc_follow_context* cxt)
 
     if ((ret = sc_aggregator_connection_send_message(cxt->connection, msg)) != 0) {
 	// connection broken
-	sc_log(LOG_DEBUG, "RELE: connection has broken.");
+	az_log(LOG_DEBUG, "RELE: connection has broken.");
 	sc_message_0_destroy(msg);
 	return 1001;
     }
 
     if ((ret = sc_aggregator_connection_receive_message(cxt->connection, &resp)) != 0) {
-	sc_log(LOG_DEBUG, "RELE: connection has broken. (on receiving) = %d", ret);
+	az_log(LOG_DEBUG, "RELE: connection has broken. (on receiving) = %d", ret);
 	sc_message_0_destroy(msg);
 	return 1001;
     }

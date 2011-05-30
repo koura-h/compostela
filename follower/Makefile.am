@@ -6,6 +6,5 @@ comfollower_SOURCES = main.c \
 	appconfig.c appconfig.h \
 	connection.c connection.h \
 	follow_context.c follow_context.h \
-	../common/scmessage.c ../common/scmessage.h ../common/supports.h ../common/supports.c \
-	../common/sclog.c ../common/sclog.h \
-	../common/azlist.h ../common/azlist.c ../common/azbuffer.h ../common/azbuffer.c
+	../common/scmessage.c ../common/scmessage.h ../common/supports.h ../common/supports.c
+comfollower_LDADD = ../common/libaz.la
