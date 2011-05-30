@@ -22,9 +22,9 @@
 #include "azbuffer.h"
 #include "azlog.h"
 
-#include "scmessage.h"
 #include "supports.h"
 
+#include "message.h"
 #include "connection.h"
 #include "follow_context.h"
 
@@ -119,14 +119,14 @@ static int g_conn_controller = -1;
 static int
 _sync_file(sc_follow_context *cxt)
 {
-    sc_message_0 *msg, *resp;
+    sc_log_message *msg, *resp;
     size_t n = strlen(cxt->displayName);
     int64_t stlen = 0;
     int32_t attr = 0, len = 0;
 
-    az_log(LOG_DEBUG, ">>> INIT: started");
+    az_log(LOG_DEBUG, ">>> SYNC: started");
 
-    msg = sc_message_0_new(n + sizeof(int32_t));
+    msg = sc_log_message_new(n + sizeof(int32_t));
     if (!msg) {
         return -1;
     }
@@ -135,7 +135,7 @@ _sync_file(sc_follow_context *cxt)
         attr |= 0x80000000;
     }
 
-    msg->code    = htons(SCM_MSG_INIT);
+    msg->code    = htons(SCM_MSG_SYNC);
     msg->channel = htons(0);
     msg->length  = htonl(n + sizeof(int32_t));
     *(int32_t*)(&msg->content) = htonl(attr);
@@ -143,17 +143,17 @@ _sync_file(sc_follow_context *cxt)
 
     // send_message
     if (sc_aggregator_connection_send_message(cxt->connection, msg) != 0) {
-        az_log(LOG_DEBUG, "INIT: connection has broken.");
+        az_log(LOG_DEBUG, "SYNC: connection has broken.");
         return -1;
     }
 
     if (sc_aggregator_connection_receive_message(cxt->connection, &resp) != 0) {
-        az_log(LOG_DEBUG, "INIT: connection has broken. (on receiving)");
+        az_log(LOG_DEBUG, "SYNC: connection has broken. (on receiving)");
         return -3;
     }
 
     if (ntohs(resp->code) != SCM_RESP_OK) {
-        az_log(LOG_DEBUG, ">>> INIT: failed (code=%d)", ntohs(resp->code));
+        az_log(LOG_DEBUG, ">>> SYNC: failed (code=%d)", ntohs(resp->code));
         return -4;
     }
     cxt->channel = htons(resp->channel);
@@ -162,7 +162,7 @@ _sync_file(sc_follow_context *cxt)
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     stlen = bswap_64(stlen);
 #endif
-    az_log(LOG_DEBUG, ">>> INIT: len = %d", len);
+    az_log(LOG_DEBUG, ">>> SYNC: len = %d", len);
     if (len > sizeof(int64_t)) {
         unsigned char* buf, *p;
         size_t bufsize, psize;
@@ -187,12 +187,12 @@ _sync_file(sc_follow_context *cxt)
     az_log(LOG_DEBUG, "stlen = %d", stlen);
     lseek(cxt->_fd, stlen, SEEK_SET);
 
-    az_log(LOG_DEBUG, ">>> INIT: finished");
+    az_log(LOG_DEBUG, ">>> SYNC: finished");
     return 0;
 }
 
 static int
-_sc_follow_context_proc_data(sc_follow_context* cxt, sc_message_0* msg, sc_message_0** ppresp)
+_sc_follow_context_proc_data(sc_follow_context* cxt, sc_log_message* msg, sc_log_message** ppresp)
 {
     int ret;
     *ppresp = NULL;
@@ -212,7 +212,7 @@ _sc_follow_context_proc_data(sc_follow_context* cxt, sc_message_0* msg, sc_messa
 }
 
 static int
-_sc_follow_context_proc_rele(sc_follow_context* cxt, sc_message_0* msg, sc_message_0** ppresp)
+_sc_follow_context_proc_rele(sc_follow_context* cxt, sc_log_message* msg, sc_log_message** ppresp)
 {
     int ret = 0;
     *ppresp = NULL;
@@ -284,16 +284,16 @@ _sc_follow_context_read_line(sc_follow_context* cxt, char* dst, size_t dsize)
  *          <0 ... error occurred.
  */
 static int
-_run_follow_context(sc_follow_context* cxt, sc_message_0** presp)
+_run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
 {
-    // sc_message_0* msg = sc_message_0_new(csize), *resp = NULL;
+    // sc_log_message* msg = sc_log_message_new(csize), *resp = NULL;
     int ret = 0, cb = 0, cb0 = 0;
     off_t cur;
 
     assert(presp != NULL);
     *presp = NULL;
 
-    sc_message_0* msgbuf = cxt->message_buffer;
+    sc_log_message* msgbuf = cxt->message_buffer;
 
     az_log(LOG_DEBUG, "context run");
     if (!sc_aggregator_connection_is_opened(cxt->connection)) {
@@ -578,7 +578,7 @@ main(int argc, char** argv)
     sc_follow_context *cxt = NULL;
 
     int ret, ch, i, epfd;
-    sc_message_0 *resp;
+    sc_log_message *resp;
     char *conf = NULL;
 
     struct option long_opts[] = {
@@ -653,7 +653,7 @@ main(int argc, char** argv)
 	    }
 
             // here, we proceed response from aggregator
-            sc_message_0_destroy(resp);
+            sc_log_message_destroy(resp);
 	}
 
 	if (rc) {

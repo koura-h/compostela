@@ -18,8 +18,8 @@ int sc_aggregator_connection_is_opened(sc_aggregator_connection_ref conn);
 
 int sc_aggregator_connection_close(sc_aggregator_connection_ref conn);
 
-int sc_aggregator_connection_send_message(sc_aggregator_connection_ref conn, sc_message_0* msg);
-int sc_aggregator_connection_receive_message(sc_aggregator_connection_ref conn, sc_message_0** pmsg);
+int sc_aggregator_connection_send_message(sc_aggregator_connection_ref conn, sc_log_message* msg);
+int sc_aggregator_connection_receive_message(sc_aggregator_connection_ref conn, sc_log_message** pmsg);
 
 void sc_aggregator_connection_destroy(sc_aggregator_connection_ref conn);
 

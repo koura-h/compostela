@@ -11,13 +11,14 @@
 #include "azbuffer.h"
 #include "azlog.h"
 
-#include "scmessage.h"
 #include "supports.h"
 
+#include "message.h"
+#include "connection.h"
 #include "appconfig.h"
+
 #include "config.h"
 
-#include "connection.h"
 
 ////////////////////
 
@@ -97,13 +98,13 @@ sc_aggregator_connection_close(sc_aggregator_connection* conn)
 }
 
 int
-sc_aggregator_connection_send_message(sc_aggregator_connection* conn, sc_message_0* msg)
+sc_aggregator_connection_send_message(sc_aggregator_connection* conn, sc_log_message* msg)
 {
     int ret = 0;
     int32_t len = ntohl(msg->length);
 
     az_log(LOG_DEBUG, "send_message: code = %d, channel = %d, length = %ld", ntohs(msg->code), ntohs(msg->channel), len);
-    if ((ret = sendall(conn->socket, msg, len + offsetof(sc_message_0, content), 0)) <= 0) {
+    if ((ret = sendall(conn->socket, msg, len + offsetof(sc_log_message, content), 0)) <= 0) {
         close(conn->socket);
 	conn->socket = -1;
         perror("sendall");
@@ -116,10 +117,10 @@ sc_aggregator_connection_send_message(sc_aggregator_connection* conn, sc_message
 }
 
 int
-sc_aggregator_connection_receive_message(sc_aggregator_connection* conn, sc_message_0** pmsg)
+sc_aggregator_connection_receive_message(sc_aggregator_connection* conn, sc_log_message** pmsg)
 {
-    char buf[offsetof(sc_message_0, content)];
-    sc_message_0* m = (sc_message_0*)buf;
+    char buf[offsetof(sc_log_message, content)];
+    sc_log_message* m = (sc_log_message*)buf;
     int32_t len = 0;
     int n;
 
@@ -136,7 +137,7 @@ sc_aggregator_connection_receive_message(sc_aggregator_connection* conn, sc_mess
 
     len = ntohl(m->length);
 
-    m = sc_message_0_new(len);
+    m = sc_log_message_new(len);
     if (!m) {
         return -2;
     }

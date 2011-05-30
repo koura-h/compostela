@@ -16,7 +16,7 @@
 
 #include <byteswap.h>
 
-#include "scmessage.h"
+#include "message.h"
 #include "supports.h"
 
 #include "azlist.h"
@@ -207,7 +207,7 @@ sc_connection_delete_channel(sc_connection* conn, sc_channel* channel)
 ////////////////////////////////////////
 
 void
-_dump(sc_message_0* msg)
+_dump(sc_log_message* msg)
 {
     az_log(LOG_DEBUG, ">>>DATA");
     fwrite(&msg->content, msg->length, 1, stderr);
@@ -330,7 +330,7 @@ _do_md5(const char* remote_addr, const char* fname, off_t fsize, unsigned char* 
 */
 
 int
-handler_init(sc_message_0* msg, sc_connection* conn)
+handler_sync(sc_log_message* msg, sc_connection* conn)
 {
     int n;
     int64_t stlen = 0;
@@ -343,7 +343,7 @@ handler_init(sc_message_0* msg, sc_connection* conn)
     char* p;
     int32_t attr = 0;
 
-    sc_message_0* ok = NULL;
+    sc_log_message* ok = NULL;
     sc_channel* channel = NULL;
 
     p = malloc(slen + 1);
@@ -369,7 +369,7 @@ handler_init(sc_message_0* msg, sc_connection* conn)
 
     sc_connection_register_channel(conn, channel);
 
-    ok = sc_message_0_new(sizeof(int32_t) + mhash_size);
+    ok = sc_log_message_new(sizeof(int32_t) + mhash_size);
     // haha
     ok->code    = htons(SCM_RESP_OK);
     ok->channel = htons(channel->id);
@@ -382,14 +382,14 @@ handler_init(sc_message_0* msg, sc_connection* conn)
         memcpy(ok->content + sizeof(stlen), mhash, mhash_size);
     }
     // haha
-    n = sendall(conn->socket, ok, offsetof(sc_message_0, content) + sizeof(stlen) + mhash_size, 0);
+    n = sendall(conn->socket, ok, offsetof(sc_log_message, content) + sizeof(stlen) + mhash_size, 0);
 
     free(mhash);
     return 0;
 }
 
 int
-handler_data(sc_message_0* msg, sc_connection* conn, sc_channel* channel)
+handler_data(sc_log_message* msg, sc_connection* conn, sc_channel* channel)
 {
     int n;
     // char path[PATH_MAX];
@@ -398,7 +398,7 @@ handler_data(sc_message_0* msg, sc_connection* conn, sc_channel* channel)
 
     // __mk_path(conn->remote_addr, channel->filename, path, sizeof(path));
 
-    sc_message_0* ok = sc_message_0_new(sizeof(int32_t));
+    sc_log_message* ok = sc_log_message_new(sizeof(int32_t));
     az_log(LOG_DEBUG, "channel_id = %d", msg->channel);
     _do_merge_file(conn->remote_addr, channel->filename, msg->content, msg->length);
     _do_append_file(channel->__filename_fullpath, msg->content, msg->length);
@@ -409,40 +409,40 @@ handler_data(sc_message_0* msg, sc_connection* conn, sc_channel* channel)
     ok->length  = htonl(sizeof(int32_t));
     memset(ok->content, 0, sizeof(int32_t));
     // haha
-    n = sendall(conn->socket, ok, offsetof(sc_message_0, content) + sizeof(int32_t), 0);
+    n = sendall(conn->socket, ok, offsetof(sc_log_message, content) + sizeof(int32_t), 0);
     // _dump(msg);
-    sc_message_0_destroy(ok);
+    sc_log_message_destroy(ok);
 
     return 0;
 }
 
 int
-handler_rele(sc_message_0* msg, sc_connection* conn, sc_channel* channel)
+handler_rele(sc_log_message* msg, sc_connection* conn, sc_channel* channel)
 {
     int n;
     sc_connection_delete_channel(conn, channel);
 
-    sc_message_0* ok = sc_message_0_new(sizeof(int32_t));
+    sc_log_message* ok = sc_log_message_new(sizeof(int32_t));
 
     ok->code    = htons(SCM_RESP_OK);
     ok->channel = htons(msg->channel);
     ok->length  = htonl(sizeof(int32_t));
     memset(ok->content, 0, sizeof(int32_t));
 
-    n = sendall(conn->socket, ok, offsetof(sc_message_0, content) + sizeof(int32_t), 0);
+    n = sendall(conn->socket, ok, offsetof(sc_log_message, content) + sizeof(int32_t), 0);
 
-    sc_message_0_destroy(ok);
+    sc_log_message_destroy(ok);
     return 0;
 }
 
 int
-handler_pos(sc_message_0* msg, sc_connection* conn, sc_channel* channel)
+handler_seek(sc_log_message* msg, sc_connection* conn, sc_channel* channel)
 {
     int n;
     // char path[PATH_MAX];
     int64_t pos;
 
-    az_log(LOG_DEBUG, ">>> handler_pos");
+    az_log(LOG_DEBUG, ">>> handler_seek");
 
     // __mk_path(conn->remote_addr, channel->filename, path, sizeof(path));
 
@@ -451,7 +451,7 @@ handler_pos(sc_message_0* msg, sc_connection* conn, sc_channel* channel)
     pos = bswap_64(pos);
 #endif
 
-    sc_message_0* ok = sc_message_0_new(sizeof(int32_t));
+    sc_log_message* ok = sc_log_message_new(sizeof(int32_t));
     _do_trunc_file(channel->__filename_fullpath, pos);
 
     // haha
@@ -460,8 +460,8 @@ handler_pos(sc_message_0* msg, sc_connection* conn, sc_channel* channel)
     ok->length  = htonl(sizeof(int32_t));
     memset(ok->content, 0, sizeof(int32_t));
     // haha
-    n = sendall(conn->socket, ok, offsetof(sc_message_0, content) + sizeof(int32_t), 0);
-    sc_message_0_destroy(ok);
+    n = sendall(conn->socket, ok, offsetof(sc_log_message, content) + sizeof(int32_t), 0);
+    sc_log_message_destroy(ok);
 
     return 0;
 }
@@ -471,12 +471,12 @@ do_receive(int epfd, sc_connection* conn)
 {
     ssize_t n;
     int16_t code = 0;
-    sc_message_0* msg = sc_message_0_new(BUFSIZE);
+    sc_log_message* msg = sc_log_message_new(BUFSIZE);
     sc_channel* channel = NULL;
 
     int c = conn->socket;
 
-    n = recvall(c, msg, offsetof(sc_message_0, content), 0);
+    n = recvall(c, msg, offsetof(sc_log_message, content), 0);
     if (n > 0) {
         msg->code    = ntohs(msg->code);
 	msg->channel = ntohs(msg->channel);
@@ -489,21 +489,21 @@ do_receive(int epfd, sc_connection* conn)
 
 	code = msg->code;
 	if (msg->channel == 0) {
-	    assert(code == SCM_MSG_INIT);
+	    // assert(code == SCM_MSG_INIT);
 	}
 
         channel = sc_connection_channel(conn, msg->channel);
 	if (!channel) {
 	    az_log(LOG_DEBUG, "conn=%p, I might be happened to restart?", conn);
-	    assert(code == SCM_MSG_INIT);
+	    // assert(code == SCM_MSG_INIT);
 	}
 
 	switch (msg->code) {
-	case SCM_MSG_INIT:
-	    handler_init(msg, conn);
+	case SCM_MSG_SYNC:
+	    handler_sync(msg, conn);
 	    break;
-	case SCM_MSG_POS:
-	    handler_pos(msg, conn, channel);
+	case SCM_MSG_SEEK:
+	    handler_seek(msg, conn, channel);
 	    break;
 	case SCM_MSG_DATA:
 	    handler_data(msg, conn, channel);
@@ -534,7 +534,7 @@ do_receive(int epfd, sc_connection* conn)
 	sc_connection_destroy(conn);
     }
 
-    sc_message_0_destroy(msg);
+    sc_log_message_destroy(msg);
     return 0;
 }
 

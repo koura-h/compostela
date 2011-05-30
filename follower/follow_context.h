@@ -12,7 +12,7 @@ typedef struct _sc_follow_context {
     //
     az_buffer_ref buffer;
     //
-    sc_message_0* message_buffer;
+    sc_log_message* message_buffer;
     //
     char *displayName;
     //

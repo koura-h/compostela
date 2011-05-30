@@ -13,9 +13,9 @@
 #include "azbuffer.h"
 #include "azlog.h"
 
-#include "scmessage.h"
 #include "supports.h"
 
+#include "message.h"
 #include "connection.h"
 #include "follow_context.h"
 
@@ -24,83 +24,6 @@
 
 
 /////
-
-int
-sc_follow_context_sync_file(sc_follow_context *cxt)
-{
-    sc_message_0 *msg, *resp;
-    size_t n = strlen(cxt->displayName);
-    int64_t stlen = 0;
-    int32_t attr = 0, len = 0;
-
-    az_log(LOG_DEBUG, ">>> INIT: started");
-
-    msg = sc_message_0_new(n + sizeof(int32_t));
-    if (!msg) {
-        return -1;
-    }
-
-    if (S_ISREG(cxt->mode) && !cxt->ftimestamp) {
-        attr |= 0x80000000;
-    }
-
-    msg->code    = htons(SCM_MSG_INIT);
-    msg->channel = htons(0);
-    msg->length  = htonl(n + sizeof(int32_t));
-    *(int32_t*)(&msg->content) = htonl(attr);
-    memcpy(msg->content + sizeof(int32_t), cxt->displayName, n);
-
-    // send_message
-    if (sc_aggregator_connection_send_message(cxt->connection, msg) != 0) {
-	az_log(LOG_DEBUG, "INIT: connection has broken.");
-        return -1;
-    }
-
-    if (sc_aggregator_connection_receive_message(cxt->connection, &resp) != 0) {
-	az_log(LOG_DEBUG, "INIT: connection has broken. (on receiving)");
-        return -3;
-    }
-
-    if (ntohs(resp->code) != SCM_RESP_OK) {
-        az_log(LOG_DEBUG, ">>> INIT: failed (code=%d)", ntohs(resp->code));
-        return -4;
-    }
-    cxt->channel = htons(resp->channel);
-    len = htonl(resp->length);
-    stlen = *(int64_t*)(&resp->content);
-#if __BYTE_ORDER == __LITTLE_ENDIAN
-    stlen = bswap_64(stlen);
-#endif
-    az_log(LOG_DEBUG, ">>> INIT: len = %d", len);
-    if (len > sizeof(int64_t)) {
-        unsigned char* buf, *p;
-	size_t bufsize, psize;
-
-	p = resp->content + sizeof(int64_t);
-	psize = len - sizeof(int64_t);
-
-	mhash_with_size(cxt->filename, stlen, &buf, &bufsize);
-	if (buf) {
-	    if (psize != bufsize || memcmp(p, buf, bufsize) != 0) {
-	        az_log(LOG_DEBUG, "mhash invalid!!!");
-		exit(-1);
-	    } else {
-	        az_log(LOG_DEBUG, "mhash check: OK");
-	    }
-	    free(buf);
-	} else {
-	    az_log(LOG_DEBUG, "mhash not found");
-	}
-    }
-    az_log(LOG_DEBUG, "channel id = %d", cxt->channel);
-    az_log(LOG_DEBUG, "stlen = %d", stlen);
-    lseek(cxt->_fd, stlen, SEEK_SET);
-
-    az_log(LOG_DEBUG, ">>> INIT: finished");
-    return 0;
-}
-
-////////////////////
 
 sc_follow_context*
 _sc_follow_context_init(sc_follow_context* cxt, const char* dispname, int ftimestamp, size_t bufsize, sc_aggregator_connection_ref conn)
@@ -123,7 +46,7 @@ _sc_follow_context_init(sc_follow_context* cxt, const char* dispname, int ftimes
     cxt->ftimestamp = ftimestamp;
 
     cxt->buffer = az_buffer_new(bufsize);
-    cxt->message_buffer = sc_message_0_new(bufsize);
+    cxt->message_buffer = sc_log_message_new(bufsize);
     cxt->message_buffer->code = htons(SCM_MSG_NONE);
 
     return cxt;
@@ -211,7 +134,7 @@ sc_follow_context_reset(sc_follow_context* cxt)
 int
 sc_follow_context_close(sc_follow_context* cxt)
 {
-    sc_message_0* msg = NULL, *resp = NULL;
+    sc_log_message* msg = NULL, *resp = NULL;
     int ret;
 
     az_log(LOG_DEBUG, "context close");
@@ -226,7 +149,7 @@ sc_follow_context_close(sc_follow_context* cxt)
 	return -1;
     }
 
-    msg = sc_message_0_new(sizeof(int32_t));
+    msg = sc_log_message_new(sizeof(int32_t));
     msg->code    = htons(SCM_MSG_RELE);
     msg->channel = htons(cxt->channel);
     msg->length  = htonl(sizeof(int32_t));
@@ -235,16 +158,16 @@ sc_follow_context_close(sc_follow_context* cxt)
     if ((ret = sc_aggregator_connection_send_message(cxt->connection, msg)) != 0) {
 	// connection broken
 	az_log(LOG_DEBUG, "RELE: connection has broken.");
-	sc_message_0_destroy(msg);
+	sc_log_message_destroy(msg);
 	return 1001;
     }
 
     if ((ret = sc_aggregator_connection_receive_message(cxt->connection, &resp)) != 0) {
 	az_log(LOG_DEBUG, "RELE: connection has broken. (on receiving) = %d", ret);
-	sc_message_0_destroy(msg);
+	sc_log_message_destroy(msg);
 	return 1001;
     }
-    sc_message_0_destroy(msg);
+    sc_log_message_destroy(msg);
 
     return 0;
 }
@@ -253,7 +176,7 @@ sc_follow_context_close(sc_follow_context* cxt)
 void
 sc_follow_context_destroy(sc_follow_context* cxt)
 {
-    sc_message_0_destroy(cxt->message_buffer);
+    sc_log_message_destroy(cxt->message_buffer);
     az_buffer_destroy(cxt->buffer);
 
     free(cxt->filename);
