@@ -1,9 +1,20 @@
+/* $Id$ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 #include "azbuffer.h"
 #include "sclog.h"
+
+
+/*
+struct _az_buffer {
+    char* buffer;
+    char* cursor;
+    size_t size;
+    size_t used;
+};
+*/
 
 az_buffer*
 az_buffer_new(size_t size)
@@ -176,4 +187,10 @@ az_buffer_reset(az_buffer* buf)
 {
     buf->cursor = buf->buffer;
     buf->used = 0;
+}
+
+size_t
+az_buffer_size(az_buffer* buf)
+{
+    return buf->size;
 }

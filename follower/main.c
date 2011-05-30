@@ -87,6 +87,7 @@ sc_controller_new(int cc)
     if (c) {
         memset(c, 0, sizeof(sc_controller));
         c->socket_fd = cc;
+        c->buffer = az_buffer_new(2048);
     }
     return c;
 }
@@ -94,6 +95,7 @@ sc_controller_new(int cc)
 void
 sc_controller_destroy(sc_controller* c)
 {
+    az_buffer_destroy(c->buffer);
     assert(c->socket_fd == -1);
     free(c);
 }
@@ -206,8 +208,8 @@ sc_follow_context_sync_file(sc_follow_context *cxt)
         return -1;
     }
 
-    if (S_ISREG(cxt->mode)) {
-        attr = 0x80000000;
+    if (S_ISREG(cxt->mode) && !cxt->ftimestamp) {
+        attr |= 0x80000000;
     }
 
     msg->code    = htons(SCM_MSG_INIT);
@@ -498,8 +500,7 @@ _sc_follow_context_read_line(sc_follow_context* cxt, char* dst, size_t dsize)
     sc_log(LOG_DEBUG, ">>> _sc_follow_context_read_line");
 
     if (az_buffer_unread_bytes(cxt->buffer) == 0) {
-        cxt->buffer->cursor = cxt->buffer->buffer;
-	cxt->buffer->used = 0;
+        az_buffer_reset(cxt->buffer);
         n = az_buffer_fetch_file(cxt->buffer, cxt->_fd, az_buffer_unused_bytes(cxt->buffer));
 	if (n <= 0) {
             if (errno == EAGAIN) { // for read()
@@ -514,8 +515,7 @@ _sc_follow_context_read_line(sc_follow_context* cxt, char* dst, size_t dsize)
 
 	p += u;
 
-        cxt->buffer->cursor = cxt->buffer->buffer;
-	cxt->buffer->used = 0;
+        az_buffer_reset(cxt->buffer);
 	n = az_buffer_fetch_file(cxt->buffer, cxt->_fd, az_buffer_unused_bytes(cxt->buffer));
 	if (n <= 0) {
             if (errno == EAGAIN) { // for read()
@@ -614,9 +614,10 @@ sc_follow_context_run(sc_follow_context* cxt, sc_message** presp)
             time_t t;
             time(&t);
             cb0 = __w3cdatetime(msgbuf->content, BUFSIZE, t);
+
+            msgbuf->content[cb0++] = ' ';
+            msgbuf->content[cb0] = '\0';
         }
-        msgbuf->content[cb0++] = ' ';
-        msgbuf->content[cb0] = '\0';
 
         cb = _sc_follow_context_read_line(cxt, msgbuf->content + cb0, BUFSIZE - cb0);
         if (cb == 0) {
@@ -687,16 +688,32 @@ get_seconds_left_in_today()
 /////
 
 int
-_do_receive_data(int c, const void *data, size_t datalen, void* info)
+_do_receive_data(int c, const void *data, size_t dlen, void* info)
 {
     sc_controller* contr = (sc_controller*)info;
-    char buf[256];
+    char line[2048];
+    size_t u;
+    int n;
 
-    sc_log(LOG_DEBUG, "data = %p, datalen = %d", data, datalen);
+#if 0
+    if (contr->direct) {
+        
+    }
+#endif
 
-    size_t unused = az_buffer_unused_bytes(contr->buffer);
-    if (unused < datalen) {
-        az_buffer_resize(contr->buffer->size + datalen);
+    sc_log(LOG_DEBUG, "data = %p, dlen = %d", data, dlen);
+
+    if (az_buffer_unread_bytes(contr->buffer) == 0) {
+        az_buffer_reset(contr->buffer);
+    }
+    n = az_buffer_fetch_bytes(contr->buffer, data, dlen);
+
+    while ((n = az_buffer_read_line(contr->buffer, line, sizeof(line), &u)) != 0) {
+        assert(n > 0); // Now, 'dst/dsize' assumes to have enough space always.
+
+        line[u] = '\0';
+
+        fprintf(stdout, "line = [%s]\n", line);
     }
 
     return 0;
