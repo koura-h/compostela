@@ -6,6 +6,8 @@
 
 #include "appconfig.h"
 
+#include "sclog.h"
+
 char* g_config_server_logdir = NULL;
 char* g_config_server_addr = NULL;
 int g_config_server_port = 0;
@@ -64,6 +66,9 @@ load_config_file(const char* fname)
     FILE *file;
 
     file = fopen(fname, "rb");
+    if (!file) {
+        return -1;
+    }
 
     yaml_parser_initialize(&parser);
 
@@ -77,20 +82,20 @@ load_config_file(const char* fname)
 
         switch (event.type) {
         case YAML_SCALAR_EVENT:
-            fprintf(stderr, "event.data.scalar.value = [%s]\n",
+            sc_log(LOG_DEBUG, "event.data.scalar.value = [%s]",
             event.data.scalar.value);
             break;
         case YAML_SEQUENCE_START_EVENT:
-            fprintf(stderr, "event.data.sequence_start.anchor = [%s] .tag = [%s]\n",
+            sc_log(LOG_DEBUG, "event.data.sequence_start.anchor = [%s] .tag = [%s]",
             event.data.sequence_start.anchor, event.data.sequence_start.tag);
             break;
         case YAML_MAPPING_START_EVENT:
-            fprintf(stderr, "event.data.mapping_start.anchor = [%s] .tag = [%s]\n",
+            sc_log(LOG_DEBUG, "event.data.mapping_start.anchor = [%s] .tag = [%s]",
             event.data.mapping_start.anchor, event.data.mapping_start.tag);
             _pick_global(&parser);
             break;
         default:
-            fprintf(stderr, "event.type = %d\n", event.type);
+            sc_log(LOG_DEBUG, "event.type = %d", event.type);
             break;
         }
         done = (event.type == YAML_STREAM_END_EVENT);
@@ -102,7 +107,7 @@ load_config_file(const char* fname)
 
     fclose(file);
 
-    fprintf(stderr, "%s\n", (error ? "FAILURE" : "SUCCESS"));
+    sc_log(LOG_DEBUG, "%s", (error ? "FAILURE" : "SUCCESS"));
 
     return 0;
 }

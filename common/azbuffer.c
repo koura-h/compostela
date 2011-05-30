@@ -3,6 +3,7 @@
 #include <string.h>
 #include <assert.h>
 #include "azbuffer.h"
+#include "sclog.h"
 
 az_buffer*
 az_buffer_new(size_t size)
@@ -58,7 +59,7 @@ az_buffer_resize(az_buffer* buf, size_t newsize)
 {
     size_t n = buf->cursor - buf->buffer;
 
-    if (newsize > buf->used) {
+    if (newsize < buf->used) {
         // shrink: not implemented yet
         return -1000;
     }
@@ -77,12 +78,25 @@ az_buffer_resize(az_buffer* buf, size_t newsize)
     return 0;
 }
 
+ssize_t
+az_buffer_fetch_bytes(az_buffer* buf, const void* data, size_t len)
+{
+    size_t unused = az_buffer_unused_bytes(buf);
+
+    if (unused > len) {
+        unused = len;
+    }
+
+    memcpy(buf->buffer + buf->used, data, unused);
+    buf->used += unused;
+    return unused;
+}
 
 ssize_t
 az_buffer_fetch_file(az_buffer* buf, int fd, size_t size)
 {
     ssize_t cb;
-    size_t unused = buf->size - buf->used;
+    size_t unused = az_buffer_unused_bytes(buf);
 
     if (unused > size) {
         unused = size;
@@ -112,6 +126,12 @@ az_buffer_read_line(az_buffer* buf, char* dst, size_t dsize, size_t* dused)
         len = p - buf->cursor + 1;
     }
 
+    if (!dst) {
+        assert(dused != NULL);
+        *dused = len;
+        return 0;
+    }
+
     if (len < dsize) {
         az_buffer_read(buf, len, dst, dsize);
         dst[len] = '\0';
@@ -123,21 +143,30 @@ az_buffer_read_line(az_buffer* buf, char* dst, size_t dsize, size_t* dused)
     }
 }
 
-
 int
 az_buffer_push_back(az_buffer* buf, const char* src, size_t ssize)
 {
-    assert(buf->cursor == buf->buffer);
+    // assert(buf->cursor == buf->buffer);
+    size_t n, r = 0;
 
-    if (ssize + buf->used > buf->size) {
-        fprintf(stderr, "%s(%s:%d) ssize = %d, buf->used = %d, buf->size = %d\n", __func__, __FILE__, __LINE__, ssize, buf->used, buf->size);
-        return -1;
+    if (!src || ssize <= 0) {
+        return 0;
     }
 
-    if (ssize > 0 && buf->used > 0) {
-        memmove(buf->buffer + ssize, buf->buffer, buf->used);
+    n = buf->cursor - buf->buffer;
+    if (ssize + buf->used - n > buf->size) { // pushback + unread
+        sc_log(LOG_DEBUG, "ssize = %d, buf->used = %d, buf->size = %d", ssize, buf->used, buf->size);
+        // return -1;
+        az_buffer_resize(buf, buf->size + ssize * 2); // adhoc
     }
-    memcpy(buf->buffer, src, ssize);
+
+    if (buf->used > 0 && n < ssize) {
+        r = ssize - n;
+        memmove(buf->cursor + r, buf->cursor, buf->used);
+        buf->used += r;
+    }
+    buf->cursor -= ssize - r;
+    memcpy(buf->cursor, src, ssize);
 
     return 0;
 }
