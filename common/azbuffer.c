@@ -7,19 +7,17 @@
 #include "sclog.h"
 
 
-/*
 struct _az_buffer {
     char* buffer;
     char* cursor;
     size_t size;
     size_t used;
 };
-*/
 
-az_buffer*
+az_buffer_ref
 az_buffer_new(size_t size)
 {
-    az_buffer* buf = (az_buffer*)malloc(sizeof(az_buffer));
+    az_buffer_ref buf = (az_buffer_ref)malloc(sizeof(struct _az_buffer));
     if (buf) {
         buf->buffer = malloc(size);
         buf->cursor = buf->buffer;
@@ -30,14 +28,14 @@ az_buffer_new(size_t size)
 }
 
 void
-az_buffer_destroy(az_buffer* buf)
+az_buffer_destroy(az_buffer_ref buf)
 {
     free(buf->buffer);
     free(buf);
 }
 
 int
-az_buffer_read(az_buffer* buf, size_t len, char* dst, size_t dsize)
+az_buffer_read(az_buffer_ref buf, size_t len, char* dst, size_t dsize)
 {
     if (dsize < len) {
         // insufficient buffer size
@@ -54,19 +52,19 @@ az_buffer_read(az_buffer* buf, size_t len, char* dst, size_t dsize)
 }
 
 ssize_t
-az_buffer_unused_bytes(az_buffer* buf)
+az_buffer_unused_bytes(az_buffer_ref buf)
 {
     return buf->size - buf->used;
 }
 
 ssize_t
-az_buffer_unread_bytes(az_buffer* buf)
+az_buffer_unread_bytes(az_buffer_ref buf)
 {
     return buf->buffer + buf->used - buf->cursor;
 }
 
 int
-az_buffer_resize(az_buffer* buf, size_t newsize)
+az_buffer_resize(az_buffer_ref buf, size_t newsize)
 {
     size_t n = buf->cursor - buf->buffer;
 
@@ -90,7 +88,7 @@ az_buffer_resize(az_buffer* buf, size_t newsize)
 }
 
 ssize_t
-az_buffer_fetch_bytes(az_buffer* buf, const void* data, size_t len)
+az_buffer_fetch_bytes(az_buffer_ref buf, const void* data, size_t len)
 {
     size_t unused = az_buffer_unused_bytes(buf);
 
@@ -104,7 +102,7 @@ az_buffer_fetch_bytes(az_buffer* buf, const void* data, size_t len)
 }
 
 ssize_t
-az_buffer_fetch_file(az_buffer* buf, int fd, size_t size)
+az_buffer_fetch_file(az_buffer_ref buf, int fd, size_t size)
 {
     ssize_t cb;
     size_t unused = az_buffer_unused_bytes(buf);
@@ -121,7 +119,7 @@ az_buffer_fetch_file(az_buffer* buf, int fd, size_t size)
 }
 
 int
-az_buffer_read_line(az_buffer* buf, char* dst, size_t dsize, size_t* dused)
+az_buffer_read_line(az_buffer_ref buf, char* dst, size_t dsize, size_t* dused)
 {
     char* p, *ret;
     size_t len;
@@ -155,7 +153,7 @@ az_buffer_read_line(az_buffer* buf, char* dst, size_t dsize, size_t* dused)
 }
 
 int
-az_buffer_push_back(az_buffer* buf, const char* src, size_t ssize)
+az_buffer_push_back(az_buffer_ref buf, const char* src, size_t ssize)
 {
     // assert(buf->cursor == buf->buffer);
     size_t n, r = 0;
@@ -166,7 +164,7 @@ az_buffer_push_back(az_buffer* buf, const char* src, size_t ssize)
 
     n = buf->cursor - buf->buffer;
     if (ssize + buf->used - n > buf->size) { // pushback + unread
-        sc_log(LOG_DEBUG, "ssize = %d, buf->used = %d, buf->size = %d", ssize, buf->used, buf->size);
+        // sc_log(LOG_DEBUG, "ssize = %d, buf->used = %d, buf->size = %d", ssize, buf->used, buf->size);
         // return -1;
         az_buffer_resize(buf, buf->size + ssize * 2); // adhoc
     }
@@ -183,14 +181,26 @@ az_buffer_push_back(az_buffer* buf, const char* src, size_t ssize)
 }
 
 void
-az_buffer_reset(az_buffer* buf)
+az_buffer_reset(az_buffer_ref buf)
 {
     buf->cursor = buf->buffer;
     buf->used = 0;
 }
 
+void*
+az_buffer_pointer(az_buffer_ref buf)
+{
+    return buf->buffer;
+}
+
+void*
+az_buffer_current(az_buffer_ref buf)
+{
+    return buf->cursor;
+}
+
 size_t
-az_buffer_size(az_buffer* buf)
+az_buffer_size(az_buffer_ref buf)
 {
     return buf->size;
 }

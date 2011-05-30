@@ -24,11 +24,13 @@
 #include "scmessage.h"
 #include "supports.h"
 
+#include "connection.h"
+#include "follow_context.h"
+
 #include "appconfig.h"
 #include "config.h"
 
 #include "sclog.h"
-
 
 /////
 
@@ -76,7 +78,9 @@ typedef struct _sc_controller {
     int socket_fd;
     char *displayName;
     //
-    az_buffer* buffer;
+    int f_direct;
+    //
+    az_buffer_ref buffer;
 } sc_controller;
 
 
@@ -107,94 +111,14 @@ az_list* g_controller_list = NULL;
 
 enum { BUFSIZE = 8192 };
 
+/////
 
-typedef struct _sc_follow_context {
-    char *filename;
-    int channel;
-    // off_t current_position;
-    off_t filesize;
-    mode_t mode;
-    int _fd;
-    //
-    az_buffer* buffer;
-    //
-    sc_message* message_buffer;
-    //
-    char *displayName;
-    //
-    int ftimestamp;
-    //
-    struct _sc_aggregator_connection *connection;
-} sc_follow_context;
+static sc_aggregator_connection_ref g_connection = NULL;
+static int g_conn_controller = -1;
 
-
-////////////////////
-
-typedef struct _sc_aggregator_connection {
-    int socket;
-    //
-    char *host;
-    int port;
-} sc_aggregator_connection;
-
-sc_aggregator_connection*
-sc_aggregator_connection_new(const char* host, int port)
-{
-    sc_aggregator_connection* conn = (sc_aggregator_connection*)malloc(sizeof(sc_aggregator_connection));
-    if (conn) {
-        conn->socket = -1;
-	conn->host   = strdup(host);
-	conn->port   = port;
-    }
-    return conn;
-}
-
-int
-sc_aggregator_connection_open(sc_aggregator_connection* conn)
-{
-    struct addrinfo hints, *ai, *ai0 = NULL;
-    int err, s = -1;
-    char sport[16];
-
-    memset(&hints, 0, sizeof(struct addrinfo));
-    hints.ai_family = PF_UNSPEC;
-    hints.ai_flags = AI_NUMERICSERV;
-    hints.ai_socktype = SOCK_STREAM;
-
-    snprintf(sport, sizeof(sport), "%d", conn->port);
-
-    err = getaddrinfo(conn->host, sport, &hints, &ai0);
-    if (err) {
-        sc_log(LOG_DEBUG, "getaddrinfo: %s", gai_strerror(err));
-        return -1;
-    }
-
-    for (ai = ai0; ai; ai = ai->ai_next) {
-        s = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-	if (s < 0) {
-	    continue;
-	}
-
-	if (connect(s, ai->ai_addr, ai->ai_addrlen) < 0) {
-	    close(s);
-	    continue;
-	}
-	conn->socket = s;
-	break;
-    }
-    freeaddrinfo(ai0);
-
-    return conn->socket != -1 ? 0 : -1;
-}
-
-int
-sc_aggregator_connection_is_opened(sc_aggregator_connection* conn)
-{
-    return conn->socket != -1 ? 1 : 0;
-}
-
-int
-sc_follow_context_sync_file(sc_follow_context *cxt)
+/////
+static int
+_sync_file(sc_follow_context *cxt)
 {
     sc_message *msg, *resp;
     size_t n = strlen(cxt->displayName);
@@ -220,12 +144,12 @@ sc_follow_context_sync_file(sc_follow_context *cxt)
 
     // send_message
     if (sc_aggregator_connection_send_message(cxt->connection, msg) != 0) {
-	sc_log(LOG_DEBUG, "INIT: connection has broken.");
+        sc_log(LOG_DEBUG, "INIT: connection has broken.");
         return -1;
     }
 
     if (sc_aggregator_connection_receive_message(cxt->connection, &resp) != 0) {
-	sc_log(LOG_DEBUG, "INIT: connection has broken. (on receiving)");
+        sc_log(LOG_DEBUG, "INIT: connection has broken. (on receiving)");
         return -3;
     }
 
@@ -242,23 +166,23 @@ sc_follow_context_sync_file(sc_follow_context *cxt)
     sc_log(LOG_DEBUG, ">>> INIT: len = %d", len);
     if (len > sizeof(int64_t)) {
         unsigned char* buf, *p;
-	size_t bufsize, psize;
+        size_t bufsize, psize;
 
-	p = resp->content + sizeof(int64_t);
-	psize = len - sizeof(int64_t);
+        p = resp->content + sizeof(int64_t);
+        psize = len - sizeof(int64_t);
 
-	mhash_with_size(cxt->filename, stlen, &buf, &bufsize);
-	if (buf) {
-	    if (psize != bufsize || memcmp(p, buf, bufsize) != 0) {
-	        sc_log(LOG_DEBUG, "mhash invalid!!!");
-		exit(-1);
-	    } else {
-	        sc_log(LOG_DEBUG, "mhash check: OK");
-	    }
-	    free(buf);
-	} else {
-	    sc_log(LOG_DEBUG, "mhash not found");
-	}
+        mhash_with_size(cxt->filename, stlen, &buf, &bufsize);
+        if (buf) {
+            if (psize != bufsize || memcmp(p, buf, bufsize) != 0) {
+                sc_log(LOG_DEBUG, "mhash invalid!!!");
+                exit(-1);
+            } else {
+                sc_log(LOG_DEBUG, "mhash check: OK");
+            }
+            free(buf);
+        } else {
+            sc_log(LOG_DEBUG, "mhash not found");
+        }
     }
     sc_log(LOG_DEBUG, "channel id = %d", cxt->channel);
     sc_log(LOG_DEBUG, "stlen = %d", stlen);
@@ -268,188 +192,7 @@ sc_follow_context_sync_file(sc_follow_context *cxt)
     return 0;
 }
 
-
-int
-sc_aggregator_connection_close(sc_aggregator_connection* conn)
-{
-    close(conn->socket);
-    conn->socket = -1;
-    return 0;
-}
-
-int
-sc_aggregator_connection_send_message(sc_aggregator_connection* conn, sc_message* msg)
-{
-    int ret = 0;
-    int32_t len = ntohl(msg->length);
-
-    sc_log(LOG_DEBUG, "send_message: code = %d, channel = %d, length = %ld", ntohs(msg->code), ntohs(msg->channel), len);
-    if ((ret = sendall(conn->socket, msg, len + offsetof(sc_message, content), 0)) <= 0) {
-        close(conn->socket);
-	conn->socket = -1;
-        perror("sendall");
-        sc_log(LOG_DEBUG, "sending error");
-        return -1;
-    }
-    sc_log(LOG_DEBUG, "send_message: done");
-
-    return 0;
-}
-
-int
-sc_aggregator_connection_receive_message(sc_aggregator_connection* conn, sc_message** pmsg)
-{
-    char buf[offsetof(sc_message, content)];
-    sc_message* m = (sc_message*)buf;
-    int32_t len = 0;
-    int n;
-
-    n = recvall(conn->socket, buf, sizeof(buf), 0);
-    if (n < 0) {
-        close(conn->socket);
-	conn->socket = -1;
-        perror("recvall");
-        return -1;
-    } else if (n == 0) {
-        sc_log(LOG_DEBUG, "closed");
-	return -4;
-    }
-
-    len = ntohl(m->length);
-
-    m = sc_message_new(len);
-    if (!m) {
-        return -2;
-    }
-
-    memcpy(m, buf, sizeof(buf));
-    if (len > 0) {
-        if (recvall(conn->socket, m->content, len, 0) <= 0) {
-            return -3;
-        }
-    }
-
-    *pmsg = m;
-
-    return 0;
-}
-
-void
-sc_aggregator_connection_destroy(sc_aggregator_connection* conn)
-{
-    sc_aggregator_connection_close(conn);
-
-    free(conn->host);
-    free(conn);
-}
-
-////////////////////
-
-sc_follow_context*
-_sc_follow_context_init(sc_follow_context* cxt, const char* dispname, int ftimestamp, sc_aggregator_connection* conn)
-{
-    memset(cxt, 0, sizeof(sc_follow_context));
-
-    cxt->connection = conn;
-    cxt->_fd = -1;
-
-    if (dispname) {
-        cxt->displayName = strdup(dispname);
-        if (!cxt->displayName) {
-            free(cxt->filename);
-            free(cxt);
-            return NULL;
-        }
-    }
-    // we should read control files for 'fname'
-
-    cxt->ftimestamp = ftimestamp;
-
-    cxt->buffer = az_buffer_new(BUFSIZE);
-    cxt->message_buffer = sc_message_new(BUFSIZE);
-    cxt->message_buffer->code = htons(SCM_MSG_NONE);
-
-    return cxt;
-}
-
-void
-sc_follow_context_destroy(sc_follow_context* cxt);
-
-sc_follow_context*
-sc_follow_context_new(const char* fname, const char* dispname, int ftimestamp, sc_aggregator_connection* conn)
-{
-    sc_follow_context* cxt = NULL;
-
-    cxt = (sc_follow_context*)malloc(sizeof(sc_follow_context));
-    if (cxt = _sc_follow_context_init(cxt, dispname, ftimestamp, conn)) {
-        if (fname) {
-            cxt->filename = strdup(fname);
-	    if (!cxt->filename) {
-                sc_follow_context_destroy(cxt);
-                return NULL;
-	    }
-        }
-    }
-
-    return cxt;
-}
-
-sc_follow_context*
-sc_follow_context_new_with_fd(int fd, const char* dispname, int ftimestamp, sc_aggregator_connection* conn)
-{
-    sc_follow_context* cxt = NULL;
-
-    cxt = (sc_follow_context*)malloc(sizeof(sc_follow_context));
-    if (cxt = _sc_follow_context_init(cxt, dispname, ftimestamp, conn)) {
-        cxt->_fd = fd;
-    }
-
-    return cxt;
-}
-
-int
-sc_follow_context_open_file(sc_follow_context* cxt)
-{
-    struct stat st;
-    int flags;
-
-    cxt->_fd = open(cxt->filename, O_RDONLY | O_NONBLOCK);
-    if (cxt->_fd < 0) {
-        sc_log(LOG_DEBUG, ">>> %s: error (%d)", __FUNCTION__, errno);
-        return -1;
-    }
-
-    fstat(cxt->_fd, &st);
-    cxt->filesize = st.st_size;
-    cxt->mode = st.st_mode;
-
-    return 0;
-}
-
-int
-sc_follow_context_close_file(sc_follow_context* cxt)
-{
-    assert(cxt != NULL);
-    if (cxt->_fd > 0) {
-        close(cxt->_fd);
-	cxt->_fd = -1;
-    }
-
-    cxt->mode = 0;
-    cxt->filesize = 0;
-
-    return 0;
-}
-
-void
-sc_follow_context_reset(sc_follow_context* cxt)
-{
-    sc_follow_context_close_file(cxt);
-    az_buffer_reset(cxt->buffer);
-    cxt->message_buffer->code = htons(SCM_MSG_NONE);
-}
-
-int
+static int
 _sc_follow_context_proc_data(sc_follow_context* cxt, sc_message* msg, sc_message** ppresp)
 {
     int ret;
@@ -469,7 +212,7 @@ _sc_follow_context_proc_data(sc_follow_context* cxt, sc_message* msg, sc_message
     return ret;
 }
 
-int
+static int
 _sc_follow_context_proc_rele(sc_follow_context* cxt, sc_message* msg, sc_message** ppresp)
 {
     int ret = 0;
@@ -534,47 +277,6 @@ _sc_follow_context_read_line(sc_follow_context* cxt, char* dst, size_t dsize)
     return p - dst;
 }
 
-int
-sc_follow_context_close(sc_follow_context* cxt)
-{
-    sc_message* msg = NULL, *resp = NULL;
-    int ret;
-
-    sc_log(LOG_DEBUG, "context close");
-    if (!sc_aggregator_connection_is_opened(cxt->connection)) {
-        // disconnected. but show must go on.
-	sc_log(LOG_DEBUG, ">>> %s: PLEASE RECONNECT NOW!", __FUNCTION__);
-	return 1001;
-    }
-
-    if (cxt->_fd < 0) {
-        sc_log(LOG_DEBUG, "already closed.");
-	return -1;
-    }
-
-    msg = sc_message_new(sizeof(int32_t));
-    msg->code    = htons(SCM_MSG_RELE);
-    msg->channel = htons(cxt->channel);
-    msg->length  = htonl(sizeof(int32_t));
-    memset(msg->content, 0, sizeof(int32_t));
-
-    if ((ret = sc_aggregator_connection_send_message(cxt->connection, msg)) != 0) {
-	// connection broken
-	sc_log(LOG_DEBUG, "RELE: connection has broken.");
-	sc_message_destroy(msg);
-	return 1001;
-    }
-
-    if ((ret = sc_aggregator_connection_receive_message(cxt->connection, &resp)) != 0) {
-	sc_log(LOG_DEBUG, "RELE: connection has broken. (on receiving) = %d", ret);
-	sc_message_destroy(msg);
-	return 1001;
-    }
-    sc_message_destroy(msg);
-
-    return 0;
-}
-
 /**
  *
  * returns: >0 ... no data processed, or connection to aggregator is down.
@@ -582,8 +284,8 @@ sc_follow_context_close(sc_follow_context* cxt)
  *          =0 ... data processed, and sent to aggregator. everything's good.
  *          <0 ... error occurred.
  */
-int
-sc_follow_context_run(sc_follow_context* cxt, sc_message** presp)
+static int
+_run_follow_context(sc_follow_context* cxt, sc_message** presp)
 {
     // sc_message* msg = sc_message_new(csize), *resp = NULL;
     int ret = 0, cb = 0, cb0 = 0;
@@ -607,7 +309,7 @@ sc_follow_context_run(sc_follow_context* cxt, sc_message** presp)
                 sc_log(LOG_DEBUG, "sc_follow_context_run: not opened yet => [%s]", cxt->filename);
                 return 1;
             }
-            sc_follow_context_sync_file(cxt);
+            _sync_file(cxt);
         }
 
         if (cxt->ftimestamp) {
@@ -638,10 +340,6 @@ sc_follow_context_run(sc_follow_context* cxt, sc_message** presp)
     if (_sc_follow_context_proc_data(cxt, msgbuf, presp) != 0) {
 	// should reconnect
 	sc_log(LOG_DEBUG, "You should reconnect now");
-#if 0
-	sc_aggregator_connection_open(cxt->connection);
-        sc_follow_context_sync_file(cxt);
-#endif
 	return 1001;
     }
 
@@ -651,17 +349,6 @@ sc_follow_context_run(sc_follow_context* cxt, sc_message** presp)
     }
 
     return 0;
-}
-
-void
-sc_follow_context_destroy(sc_follow_context* cxt)
-{
-    sc_message_destroy(cxt->message_buffer);
-    az_buffer_destroy(cxt->buffer);
-
-    free(cxt->filename);
-    free(cxt->displayName);
-    free(cxt);
 }
 
 az_list* g_context_list = NULL;
@@ -688,18 +375,36 @@ get_seconds_left_in_today()
 /////
 
 int
+_do_controller_direct_open_with_line(char* linebuf, size_t size, sc_controller* contr)
+{
+    sc_follow_context* cxt = NULL;
+    char *p = linebuf + 5, *px;
+
+    for (px = p; *px; px++) {
+        if (*px == ' ' || *px == '\n' || *px == '\r') {
+            *px = '\0';
+            break;
+        }
+    }
+
+    contr->displayName = strdup(p);
+    contr->f_direct = 1;
+
+    fprintf(stderr, "OPEN: displayName=(%s)\n", p);
+
+    cxt = sc_follow_context_new_with_fd(contr->socket_fd, p, 0, BUFSIZE, g_connection);
+    g_context_list = az_list_add(g_context_list, cxt);
+
+    return 0;
+}
+
+int
 _do_receive_data(int c, const void *data, size_t dlen, void* info)
 {
     sc_controller* contr = (sc_controller*)info;
-    char line[2048];
+    char line[2048], *p, *px;
     size_t u;
-    int n;
-
-#if 0
-    if (contr->direct) {
-        
-    }
-#endif
+    int n, ret = 0;
 
     sc_log(LOG_DEBUG, "data = %p, dlen = %d", data, dlen);
 
@@ -708,15 +413,24 @@ _do_receive_data(int c, const void *data, size_t dlen, void* info)
     }
     n = az_buffer_fetch_bytes(contr->buffer, data, dlen);
 
-    while ((n = az_buffer_read_line(contr->buffer, line, sizeof(line), &u)) != 0) {
-        assert(n > 0); // Now, 'dst/dsize' assumes to have enough space always.
-
+    while ((n = az_buffer_read_line(contr->buffer, line, sizeof(line), &u)) == 0) {
         line[u] = '\0';
 
-        fprintf(stdout, "line = [%s]\n", line);
+        if (contr->f_direct) {
+            fprintf(stdout, "direct: [%s]\n", line);
+        } else {
+            sc_log(LOG_DEBUG, "line = [%s]", line);
+            if (strncmp(line, "OPEN ", 5) == 0) {
+                _do_controller_direct_open_with_line(line, sizeof(line), contr);
+
+                send(c, "OK\n", 3, 0);
+
+                ret = 1;
+            }
+        }
     }
 
-    return 0;
+    return ret;
 }
 
 enum { MAX_EVENTS = 16 };
@@ -734,7 +448,11 @@ do_receive(int epfd, int c, void* info)
     
     n = recv(c, databuf, BUFSIZE, 0);
     if (n > 0) {
-        _do_receive_data(c, databuf, n, contr);
+        if (_do_receive_data(c, databuf, n, contr) != 0) {
+            epoll_ctl(epfd, EPOLL_CTL_DEL, c, NULL);
+            close(c);
+            sc_controller_destroy(contr);
+        }
     } else if (n == 0) {
         struct epoll_event ev;
 
@@ -855,9 +573,6 @@ usage()
     fprintf(stdout, "USAGE: comfollower\n");
 }
 
-static sc_aggregator_connection *g_connection = NULL;
-static int g_conn_controller = -1;
-
 int
 main(int argc, char** argv)
 {
@@ -919,21 +634,19 @@ main(int argc, char** argv)
 	int sl = 1, rc = 0, cc;
         cxt = NULL;
 
-        fprintf(stdout, ".");
-
         do_server_socket(epfd, &g_conn_controller, 1);
 
 	for (li = g_context_list; li; li = li->next) {
             resp = NULL;
             cxt = li->object;
-            ret = sc_follow_context_run(cxt, &resp);
+            ret = _run_follow_context(cxt, &resp);
 	    if (ret > 0) {
 	        if (ret >= 1000) {
 		    rc = 1;
 		}
 	    } else if (ret == -1) {
 	        // error occurred
-	        perror("sc_follow_context_run");
+	        perror("_run_follow_context");
 	        exit(1);
 	    } else {
 	        // in proceessed any bytes.
@@ -1008,7 +721,7 @@ set_rotation_timer()
 }
 
 int
-do_rotate(sc_aggregator_connection* conn)
+do_rotate(sc_aggregator_connection_ref conn)
 {
     sc_config_pattern_entry *pe;
     struct tm tm;
@@ -1056,7 +769,7 @@ do_rotate(sc_aggregator_connection* conn)
         }
 
         if (not_found) {
-            cxt = sc_follow_context_new(fn, dn, pe->append_timestamp, conn);
+            cxt = sc_follow_context_new(fn, dn, pe->append_timestamp, BUFSIZE, conn);
             g_context_list = az_list_add(g_context_list, cxt);
             sc_log(LOG_DEBUG, "added: new follow_context");
         }
@@ -1089,7 +802,7 @@ do_rotate(sc_aggregator_connection* conn)
         }
 
         if (not_found) {
-            cxt = sc_follow_context_new_with_fd(contr->socket_fd, dn, pe->append_timestamp, conn);
+            cxt = sc_follow_context_new_with_fd(contr->socket_fd, dn, 1, BUFSIZE, conn);
             g_context_list = az_list_add(g_context_list, cxt);
             sc_log(LOG_DEBUG, "added: new follow_context => displayName: %s", dn);
         }

@@ -2,6 +2,7 @@
 #define __SCLOG_H__
 
 #include <stdarg.h>
+#include <stddef.h>
 #include <syslog.h>
 
 #if 1

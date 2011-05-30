@@ -1,6 +1,7 @@
 /* $Id$ */
 #include <sys/epoll.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <dirent.h>
 #include <stdio.h>
 #include <stddef.h>
@@ -8,6 +9,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <libgen.h>
 #include <assert.h>
 #include <getopt.h>
@@ -646,6 +648,7 @@ main(int argc, char** argv)
     free(conf);
 
     //
+    set_rotation_timer();
     set_sigpipe_handler();
 
     //
@@ -685,6 +688,55 @@ main(int argc, char** argv)
     for (i = 0; i < nsock; i++) {
         close(s[i]);
     }
+
+    return 0;
+}
+
+/////
+
+void
+handler_alarm(int sig, siginfo_t* sinfo, void* ptr)
+{
+    struct itimerval itimer = {};
+    sc_log(LOG_DEBUG, ">>> %s: BEGIN", __FUNCTION__);
+
+    // do_rotate(g_connection);
+
+#if 0
+    itimer.it_interval.tv_sec = 86400;
+#else
+    itimer.it_interval.tv_sec = 1;
+#endif
+    itimer.it_interval.tv_usec = 0;
+    itimer.it_value = itimer.it_interval;
+    assert(setitimer(ITIMER_REAL, &itimer, 0) == 0);
+
+    sc_log(LOG_DEBUG, ">>> %s: END", __FUNCTION__);
+}
+
+int
+set_rotation_timer()
+{
+    double secs_left = 0.0L;
+    struct itimerval itimer = {};
+    struct sigaction sa = {
+        .sa_sigaction = handler_alarm,
+        .sa_flags = SA_RESTART | SA_SIGINFO,
+    };
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGALRM, &sa, NULL);
+
+#if 0
+    secs_left = get_seconds_left_in_today();
+    sc_log(LOG_DEBUG, "secs_left = %lf", secs_left);
+
+    itimer.it_interval.tv_sec = secs_left;
+#else
+    itimer.it_interval.tv_sec = 1;
+#endif
+    itimer.it_interval.tv_usec = 0;
+    itimer.it_value = itimer.it_interval;
+    assert(setitimer(ITIMER_REAL, &itimer, 0) == 0);
 
     return 0;
 }

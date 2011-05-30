@@ -35,7 +35,7 @@ test_azbuffer()
 {
     char cb[2];
 
-    az_buffer* buf = az_buffer_new(10);
+    az_buffer_ref buf = az_buffer_new(10);
     CU_ASSERT(az_buffer_unused_bytes(buf) == 10);
     CU_ASSERT(az_buffer_unread_bytes(buf) == 0);
 
@@ -59,7 +59,7 @@ test_azbuffer_2()
     size_t n = 0;
     int ret = 0;
 
-    az_buffer* buf = az_buffer_new(10);
+    az_buffer_ref buf = az_buffer_new(10);
     CU_ASSERT(az_buffer_unused_bytes(buf) == 10);
     CU_ASSERT(az_buffer_unread_bytes(buf) == 0);
 
@@ -98,38 +98,38 @@ test_azbuffer_3()
     int f = open("./test.txt", O_RDONLY);
     CU_ASSERT(f > 0);
 
-    az_buffer* buf = az_buffer_new(10);
+    az_buffer_ref buf = az_buffer_new(10);
     CU_ASSERT(az_buffer_unused_bytes(buf) == 10);
     CU_ASSERT(az_buffer_unread_bytes(buf) == 0);
 
     az_buffer_fetch_file(buf, f, 5);
     CU_ASSERT(az_buffer_unused_bytes(buf) == 5);
     CU_ASSERT(az_buffer_unread_bytes(buf) == 5);
-    CU_ASSERT(strcmp(buf->cursor, "abcde") == 0);
+    CU_ASSERT(strcmp(az_buffer_current(buf), "abcde") == 0);
 
     memset(cb, 0, sizeof(cb));
     az_buffer_read(buf, 3, cb, sizeof(cb));
     CU_ASSERT(az_buffer_unused_bytes(buf) == 5);
     CU_ASSERT(az_buffer_unread_bytes(buf) == 2);
-    CU_ASSERT(strcmp(buf->cursor, "de") == 0);
+    CU_ASSERT(strcmp(az_buffer_current(buf), "de") == 0);
     CU_ASSERT(strcmp(cb, "abc") == 0);
 
     az_buffer_push_back(buf, "0123", 4);
     CU_ASSERT(az_buffer_unused_bytes(buf) == 4);
     CU_ASSERT(az_buffer_unread_bytes(buf) == 6);
-    CU_ASSERT(strcmp(buf->cursor, "0123de") == 0);
+    CU_ASSERT(strcmp(az_buffer_current(buf), "0123de") == 0);
 
     memset(cb, 0, sizeof(cb));
     az_buffer_read(buf, 5, cb, sizeof(cb));
     CU_ASSERT(az_buffer_unused_bytes(buf) == 4);
     CU_ASSERT(az_buffer_unread_bytes(buf) == 1);
-    CU_ASSERT(strcmp(buf->cursor, "e") == 0);
+    CU_ASSERT(strcmp(az_buffer_current(buf), "e") == 0);
     CU_ASSERT(strcmp(cb, "0123d") == 0);
 
     az_buffer_push_back(buf, "0123456789", 10);
     CU_ASSERT(az_buffer_unused_bytes(buf) == 19);
     CU_ASSERT(az_buffer_unread_bytes(buf) == 11);
-    CU_ASSERT(strcmp(buf->cursor, "0123456789e") == 0);
+    CU_ASSERT(strcmp(az_buffer_current(buf), "0123456789e") == 0);
 
     az_buffer_destroy(buf);
     close(f);
@@ -142,33 +142,33 @@ test_azbuffer_4()
     int f = open("./test.txt", O_RDONLY);
     CU_ASSERT(f > 0);
 
-    az_buffer* buf = az_buffer_new(10);
+    az_buffer_ref buf = az_buffer_new(10);
     CU_ASSERT(az_buffer_unused_bytes(buf) == 10);
     CU_ASSERT(az_buffer_unread_bytes(buf) == 0);
 
     az_buffer_fetch_file(buf, f, 5);
     CU_ASSERT(az_buffer_unused_bytes(buf) == 5);
     CU_ASSERT(az_buffer_unread_bytes(buf) == 5);
-    CU_ASSERT(strcmp(buf->cursor, "abcde") == 0);
+    CU_ASSERT(strcmp(az_buffer_current(buf), "abcde") == 0);
 
     memset(cb, 0, sizeof(cb));
     az_buffer_read(buf, 5, cb, sizeof(cb));
     CU_ASSERT(az_buffer_unused_bytes(buf) == 5);
     CU_ASSERT(az_buffer_unread_bytes(buf) == 0);
-    CU_ASSERT(strcmp(buf->cursor, "") == 0);
+    CU_ASSERT(strcmp(az_buffer_current(buf), "") == 0);
     CU_ASSERT(strcmp(cb, "abcde") == 0);
 
     az_buffer_fetch_file(buf, f, 5);
     CU_ASSERT(az_buffer_unused_bytes(buf) == 0);
     CU_ASSERT(az_buffer_unread_bytes(buf) == 5);
-    CU_ASSERT(strcmp(buf->cursor, "fghij") == 0);
+    CU_ASSERT(strcmp(az_buffer_current(buf), "fghij") == 0);
 
     memset(cb, 0, sizeof(cb));
     az_buffer_read(buf, 5, cb, sizeof(cb));
     CU_ASSERT(az_buffer_unused_bytes(buf) == 0);
     CU_ASSERT(az_buffer_unread_bytes(buf) == 0);
-    CU_ASSERT(strcmp(buf->cursor, "") == 0);
-    CU_ASSERT(strncmp(buf->buffer, "abcdefghij", 10) == 0);
+    CU_ASSERT(strcmp(az_buffer_current(buf), "") == 0);
+    CU_ASSERT(strncmp(az_buffer_pointer(buf), "abcdefghij", 10) == 0);
     CU_ASSERT(strcmp(cb, "fghij") == 0);
 
     az_buffer_destroy(buf);
