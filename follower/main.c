@@ -117,14 +117,14 @@ static int g_conn_controller = -1;
 
 /////
 static int
-_sync_file(sc_follow_context *cxt)
+_init_file(sc_follow_context *cxt)
 {
     sc_log_message *msg, *resp;
     size_t n = strlen(cxt->displayName);
     int64_t stlen = 0;
     int32_t attr = 0, len = 0;
 
-    az_log(LOG_DEBUG, ">>> SYNC: started");
+    az_log(LOG_DEBUG, ">>> INIT: started");
 
     msg = sc_log_message_new(n + sizeof(int32_t));
     if (!msg) {
@@ -135,34 +135,37 @@ _sync_file(sc_follow_context *cxt)
         attr |= 0x80000000;
     }
 
-    msg->code    = htons(SCM_MSG_SYNC);
-    msg->channel = htons(0);
-    msg->length  = htonl(n + sizeof(int32_t));
+    msg->code    = SCM_MSG_INIT;
+    msg->channel = 0;
+    msg->length  = n + sizeof(int32_t);
+
     *(int32_t*)(&msg->content) = htonl(attr);
     memcpy(msg->content + sizeof(int32_t), cxt->displayName, n);
 
     // send_message
     if (sc_aggregator_connection_send_message(cxt->connection, msg) != 0) {
-        az_log(LOG_DEBUG, "SYNC: connection has broken.");
+        az_log(LOG_DEBUG, "INIT: connection has broken.");
         return -1;
     }
 
     if (sc_aggregator_connection_receive_message(cxt->connection, &resp) != 0) {
-        az_log(LOG_DEBUG, "SYNC: connection has broken. (on receiving)");
+        az_log(LOG_DEBUG, "INIT: connection has broken. (on receiving)");
         return -3;
     }
 
-    if (ntohs(resp->code) != SCM_RESP_OK) {
-        az_log(LOG_DEBUG, ">>> SYNC: failed (code=%d)", ntohs(resp->code));
+    if (resp->code != SCM_RESP_OK) {
+        az_log(LOG_DEBUG, ">>> INIT: failed (code=%d)", resp->code);
         return -4;
     }
-    cxt->channel = htons(resp->channel);
-    len = htonl(resp->length);
+
+    cxt->channel = resp->channel;
+    len = resp->length;
+
     stlen = *(int64_t*)(&resp->content);
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     stlen = bswap_64(stlen);
 #endif
-    az_log(LOG_DEBUG, ">>> SYNC: len = %d", len);
+    az_log(LOG_DEBUG, ">>> INIT: len = %d", len);
     if (len > sizeof(int64_t)) {
         unsigned char* buf, *p;
         size_t bufsize, psize;
@@ -187,7 +190,7 @@ _sync_file(sc_follow_context *cxt)
     az_log(LOG_DEBUG, "stlen = %d", stlen);
     lseek(cxt->_fd, stlen, SEEK_SET);
 
-    az_log(LOG_DEBUG, ">>> SYNC: finished");
+    az_log(LOG_DEBUG, ">>> INIT: finished");
     return 0;
 }
 
@@ -302,13 +305,13 @@ _run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
 	return 1001;
     }
 
-    if (msgbuf->code == htons(SCM_MSG_NONE)) {
+    if (msgbuf->code == SCM_MSG_NONE) {
         if (cxt->_fd <= 0) {
             if (sc_follow_context_open_file(cxt) != 0) {
                 az_log(LOG_DEBUG, "sc_follow_context_run: not opened yet => [%s]", cxt->filename);
                 return 1;
             }
-            _sync_file(cxt);
+            _init_file(cxt);
         }
 
         if (cxt->ftimestamp) {
@@ -331,9 +334,9 @@ _run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
         assert(cxt->channel != 0);
         az_log(LOG_DEBUG, "reading file...");
 
-        msgbuf->code    = htons(SCM_MSG_DATA);
-        msgbuf->channel = htons(cxt->channel);
-        msgbuf->length  = htonl(cb0 + cb);
+        msgbuf->code    = SCM_MSG_DATA;
+        msgbuf->channel = cxt->channel;
+        msgbuf->length  = cb0 + cb;
     }
 
     if (_sc_follow_context_proc_data(cxt, msgbuf, presp) != 0) {
@@ -342,9 +345,9 @@ _run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
 	return 1001;
     }
 
-    if (htons((*presp)->code) == SCM_RESP_OK) {
+    if ((*presp)->code == SCM_RESP_OK) {
         // cxt->current_position = cur;
-	msgbuf->code = htons(SCM_MSG_NONE);
+	msgbuf->code = SCM_MSG_NONE;
     }
 
     return 0;

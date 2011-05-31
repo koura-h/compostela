@@ -5,11 +5,12 @@
 
 enum {
     SCM_MSG_NONE = 0,
-    SCM_MSG_SYNC = 100,
-    SCM_MSG_DATA = 101,
-    SCM_MSG_SEEK  = 102,
-    SCM_MSG_RELE = 103,
-    SCM_MSG_MOVE = 104,
+    SCM_MSG_INIT = 101,
+    SCM_MSG_SYNC,
+    SCM_MSG_DATA,
+    SCM_MSG_SEEK,
+    SCM_MSG_RELE,
+    SCM_MSG_MOVE,
     //
     SCM_RESP_OK = 1001,
 };

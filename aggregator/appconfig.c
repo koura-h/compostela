@@ -12,6 +12,8 @@ char* g_config_server_logdir = NULL;
 char* g_config_server_addr = NULL;
 int g_config_server_port = 0;
 
+int g_config_hostname_lookups = 0;
+
 int
 _pick_global(yaml_parser_t* parser)
 {
@@ -46,6 +48,14 @@ _pick_global(yaml_parser_t* parser)
             }
 
             g_config_server_port = strtoul(evvalue.data.scalar.value, NULL, 10);
+            yaml_event_delete(&evvalue);
+        } else if (strcmp(event.data.scalar.value, "hostnameLookups") == 0) {
+            if (!yaml_parser_parse(parser, &evvalue)) {
+                error = 1;
+                break;
+            }
+
+            g_config_hostname_lookups = (strcmp(evvalue.data.scalar.value, "true") == 0 ? 1 : 0);
             yaml_event_delete(&evvalue);
         }
 

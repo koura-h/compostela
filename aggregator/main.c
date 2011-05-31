@@ -130,9 +130,12 @@ void
 sc_connection_set_remote_addr(sc_connection* conn, struct sockaddr* sa, socklen_t salen)
 {
     if (!conn->remote_addr) {
-	int err;
+	int err, opt = 0;
 	char hbuf[NI_MAXHOST];
-	if ((err = getnameinfo(sa, salen, hbuf, sizeof(hbuf), NULL, 0, NI_NUMERICHOST))) {
+        if (!g_config_hostname_lookups) {
+            opt |= NI_NUMERICHOST;
+        }
+	if ((err = getnameinfo(sa, salen, hbuf, sizeof(hbuf), NULL, 0, opt))) {
 	    az_log(LOG_DEBUG, "gai_strerror = [%s]", gai_strerror(err));
 	    return;
         }
@@ -330,7 +333,7 @@ _do_md5(const char* remote_addr, const char* fname, off_t fsize, unsigned char* 
 */
 
 int
-handler_sync(sc_log_message* msg, sc_connection* conn)
+handler_init(sc_log_message* msg, sc_connection* conn)
 {
     int n;
     int64_t stlen = 0;
@@ -499,8 +502,8 @@ do_receive(int epfd, sc_connection* conn)
 	}
 
 	switch (msg->code) {
-	case SCM_MSG_SYNC:
-	    handler_sync(msg, conn);
+	case SCM_MSG_INIT:
+	    handler_init(msg, conn);
 	    break;
 	case SCM_MSG_SEEK:
 	    handler_seek(msg, conn, channel);
