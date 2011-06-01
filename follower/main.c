@@ -789,11 +789,12 @@ do_rotate(sc_aggregator_connection_ref conn)
     time_t t;
     sc_follow_context* cxt = NULL;
     int not_found;
-    az_list *li, *lj;
+    az_list *li, *lj, *lp;
 
     time(&t);
     localtime_r(&t, &tm);
-    for (pe = g_config_patterns; pe; pe = pe->_next) {
+    for (lp = g_config_patterns; lp; lp = lp->next) {
+        pe = (sc_config_pattern_entry*)li->object;
         char fn[PATH_MAX], dn[PATH_MAX];
 
         if (pe->rotate && strchr(pe->path, '%')) {

@@ -5,60 +5,17 @@
 #include <stdio.h>
 
 #include "appconfig.h"
+#include "config.h"
 
+#include "azlist.h"
 #include "azlog.h"
 
 char* g_config_server_address = NULL;
-int g_config_server_port = 0;
+int   g_config_server_port = 0;
+int   g_config_waiting_seconds = 1;
+char* g_config_control_path = NULL;
+
 sc_config_pattern_entry* g_config_patterns = NULL;
-int g_config_waiting_seconds = 0;
-
-/*
-int
-_pick_mapping(yaml_parser_t* parser, int lv)
-{
-    int done = 0;
-        int error = 0;
-
-        yaml_event_t event;
-        while (!done)
-        {
-            if (!yaml_parser_parse(parser, &event)) {
-                error = 1;
-                break;
-            }
-
-            switch (event.type) {
-            case YAML_SCALAR_EVENT:
-                az_log(LOG_DEBUG, "%d) event.data.scalar.value = [%s]",
-                lv, event.data.scalar.value);
-                break;
-            case YAML_SEQUENCE_START_EVENT:
-                // az_log(LOG_DEBUG, "event.data.sequence_start.anchor = [%s] .tag = [%s]",
-                // event.data.sequence_start.anchor, event.data.sequence_start.tag);
-                _pick_sequence(parser, lv + 1);
-                break;
-            case YAML_MAPPING_START_EVENT:
-                az_log(LOG_DEBUG, "%d) event.data.mapping_start.anchor = [%s] .tag = [%s]",
-                lv, event.data.mapping_start.anchor, event.data.mapping_start.tag);
-                _pick_mapping(parser, lv + 1);
-                break;
-            case YAML_MAPPING_END_EVENT:
-                yaml_event_delete(&event);
-                return 0;
-                break;
-            default:
-                az_log(LOG_DEBUG, "event.type = %d", event.type);
-                break;
-            }
-            done = (event.type == YAML_STREAM_END_EVENT);
-
-            yaml_event_delete(&event);
-        }
-
-        return -1;
-}
-*/
 
 sc_config_pattern_entry*
 _pick_pattern_entry(yaml_parser_t* parser)
@@ -112,7 +69,7 @@ _pick_pattern_entry(yaml_parser_t* parser)
 sc_config_pattern_entry *
 _pick_patterns(yaml_parser_t* parser)
 {
-    sc_config_pattern_entry *list = NULL;
+    az_list* li = NULL;
     int done = 0;
     int error = 0;
 
@@ -124,27 +81,15 @@ _pick_patterns(yaml_parser_t* parser)
         }
 
         switch (event.type) {
-        /*
-        case YAML_SCALAR_EVENT:
-            az_log(LOG_DEBUG, "%d) event.data.scalar.value = [%s]",
-            lv, event.data.scalar.value);
-            break;
-        case YAML_SEQUENCE_START_EVENT:
-            // az_log(LOG_DEBUG, "event.data.sequence_start.anchor = [%s] .tag = [%s]",
-            // event.data.sequence_start.anchor, event.data.sequence_start.tag);
-            _pick_sequence(parser, lv + 1);
-            break;
-            */
         case YAML_SEQUENCE_END_EVENT:
             yaml_event_delete(&event);
-            return list;
+            return li;
 
         case YAML_MAPPING_START_EVENT:
             {
                 sc_config_pattern_entry *entry = _pick_pattern_entry(parser);
                 if (entry) {
-                    entry->_next = list;
-                    list = entry;
+                    li = az_list_add(li, entry);
                 }
             }
             break;
@@ -161,7 +106,7 @@ _pick_patterns(yaml_parser_t* parser)
         yaml_event_delete(&event);
     }
 
-    return list;
+    return li;
 }
 
 int
@@ -199,7 +144,15 @@ _pick_global(yaml_parser_t* parser)
 
             g_config_server_port = strtoul(evvalue.data.scalar.value, NULL, 10);
             yaml_event_delete(&evvalue);
-        } else if (strcmp(event.data.scalar.value, "waiting-seconds") == 0 ||
+        } else if (strcmp(event.data.scalar.value, "controlPath") == 0) {
+            if (!yaml_parser_parse(parser, &evvalue)) {
+                error = 1;
+                break;
+            }
+
+            g_config_control_path = strdup(evvalue.data.scalar.value);
+            yaml_event_delete(&evvalue);
+        } else if (strcmp(event.data.scalar.value, "waitingSeconds") == 0 ||
                    strcmp(event.data.scalar.value, "waiting") == 0) {
             if (!yaml_parser_parse(parser, &evvalue)) {
                 error = 1;
@@ -295,17 +248,18 @@ load_config_file(const char* fname)
 void
 clean_config()
 {
-    sc_config_pattern_entry *e0, *e = g_config_patterns;
+    az_list *li = g_config_patterns;
+    sc_config_pattern_entry *e;
 
     free(g_config_server_address);
+    free(g_config_control_path);
 
-    while (e) {
-        e0 = e;
-        e = e->_next;
-
-        free(e0->path);
-        free(e0->displayName);
-        free(e0);
+    for (li = g_config_patterns; li; li = li->next) {
+        e = (sc_config_pattern_entry*)li->object;
+        
+        free(e->path);
+        free(e->displayName);
+        free(e);
     }
 
     g_config_server_address = NULL;
