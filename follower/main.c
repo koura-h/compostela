@@ -386,7 +386,10 @@ _run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
             return -1;
         }
 
-        assert(cxt->channel != 0);
+        // assert(cxt->channel != 0);
+        if (cxt->channel == 0) {
+            _init_file(cxt);
+        }
         az_log(LOG_DEBUG, "reading file...");
 
         msgbuf->code           = SCM_MSG_DATA;
@@ -481,7 +484,6 @@ _do_receive_data(int c, const void *data, size_t dlen, void* info)
                 _do_controller_direct_open_with_line(line, sizeof(line), contr);
 
                 send(c, "OK\n", 3, 0);
-
                 ret = 1;
             }
         }
@@ -507,7 +509,9 @@ do_receive(int epfd, int c, void* info)
     if (n > 0) {
         if (_do_receive_data(c, databuf, n, contr) != 0) {
             epoll_ctl(epfd, EPOLL_CTL_DEL, c, NULL);
-            close(c);
+            // close(c);
+
+            contr->socket_fd = -1;
             sc_controller_destroy(contr);
         }
     } else if (n == 0) {
@@ -812,7 +816,7 @@ do_rotate(sc_aggregator_connection_ref conn)
         not_found = 1;
         for (li = g_context_list; not_found && li; li = li->next) {
             cxt = li->object;
-            if (strcmp(cxt->filename, fn) == 0) {
+            if (cxt->filename && strcmp(cxt->filename, fn) == 0) {
 		if (strcmp(cxt->displayName, dn) == 0) {
                     // , I'm already following it.
                     not_found = 0;
