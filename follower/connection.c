@@ -101,13 +101,13 @@ int
 sc_aggregator_connection_send_message(sc_aggregator_connection* conn, sc_log_message* msg)
 {
     int ret = 0;
-    int32_t len = msg->length;
+    int32_t len = msg->content_length;
 
-    az_log(LOG_DEBUG, "send_message: code = %d, channel = %d, length = %ld", msg->code, msg->channel, msg->length);
+    az_log(LOG_DEBUG, "send_message: code = %d, channel = %d, length = %d", msg->code, msg->channel, msg->content_length);
 
-    msg->code    = htons(msg->code);
-    msg->channel = htons(msg->channel);
-    msg->length  = htonl(msg->length);
+    msg->code           = htons(msg->code);
+    msg->channel        = htons(msg->channel);
+    msg->content_length = htonl(msg->content_length);
 
     if ((ret = sendall(conn->socket, msg, len + offsetof(sc_log_message, content), 0)) <= 0) {
         close(conn->socket);
@@ -125,7 +125,8 @@ int
 sc_aggregator_connection_receive_message(sc_aggregator_connection* conn, sc_log_message** pmsg)
 {
     char buf[offsetof(sc_log_message, content)];
-    sc_log_message* m = (sc_log_message*)buf;
+    sc_log_message *m0 = (sc_log_message*)buf, *m = NULL;
+    int32_t len;
     int n;
 
     n = recvall(conn->socket, buf, sizeof(buf), 0);
@@ -139,22 +140,21 @@ sc_aggregator_connection_receive_message(sc_aggregator_connection* conn, sc_log_
 	return -4;
     }
 
-    m->length  = ntohl(m->length);
+    len = ntohl(m0->content_length);
 
-    m = sc_log_message_new(m->length);
+    m = sc_log_message_new(len);
     if (!m) {
         return -2;
     }
 
-    memcpy(m, buf, sizeof(buf));
-    if (m->length > 0) {
-        if (recvall(conn->socket, m->content, m->length, 0) <= 0) {
+    m->code    = ntohs(m0->code);
+    m->channel = ntohs(m0->channel);
+
+    if (m->content_length > 0) {
+        if (recvall(conn->socket, m->content, m->content_length, 0) <= 0) {
             return -3;
         }
     }
-
-    m->code    = ntohs(m->code);
-    m->channel = ntohs(m->channel);
 
     *pmsg = m;
     return 0;

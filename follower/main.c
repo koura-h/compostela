@@ -22,13 +22,13 @@
 #include "azbuffer.h"
 #include "azlog.h"
 
-#include "supports.h"
-
 #include "message.h"
 #include "connection.h"
 #include "follow_context.h"
 
 #include "appconfig.h"
+#include "supports.h"
+
 #include "config.h"
 
 /////
@@ -121,7 +121,7 @@ _init_file(sc_follow_context *cxt)
 {
     sc_log_message *msg, *resp;
     size_t n = strlen(cxt->displayName);
-    int64_t stlen = 0;
+    int64_t pos = 0;
     int32_t attr = 0, len = 0;
 
     az_log(LOG_DEBUG, ">>> INIT: started");
@@ -137,7 +137,6 @@ _init_file(sc_follow_context *cxt)
 
     msg->code    = SCM_MSG_INIT;
     msg->channel = 0;
-    msg->length  = n + sizeof(int32_t);
 
     *(int32_t*)(&msg->content) = htonl(attr);
     memcpy(msg->content + sizeof(int32_t), cxt->displayName, n);
@@ -159,11 +158,11 @@ _init_file(sc_follow_context *cxt)
     }
 
     cxt->channel = resp->channel;
-    len = resp->length;
+    len = resp->content_length;
 
-    stlen = *(int64_t*)(&resp->content);
+    pos = *(int64_t*)(&resp->content);
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-    stlen = bswap_64(stlen);
+    pos = bswap_64(pos);
 #endif
     az_log(LOG_DEBUG, ">>> INIT: len = %d", len);
     if (len > sizeof(int64_t)) {
@@ -173,7 +172,7 @@ _init_file(sc_follow_context *cxt)
         p = resp->content + sizeof(int64_t);
         psize = len - sizeof(int64_t);
 
-        mhash_with_size(cxt->filename, stlen, &buf, &bufsize);
+        mhash_with_size(cxt->filename, pos, &buf, &bufsize);
         if (buf) {
             if (psize != bufsize || memcmp(p, buf, bufsize) != 0) {
                 az_log(LOG_DEBUG, "mhash invalid!!!");
@@ -186,11 +185,64 @@ _init_file(sc_follow_context *cxt)
             az_log(LOG_DEBUG, "mhash not found");
         }
     }
-    az_log(LOG_DEBUG, "channel id = %d", cxt->channel);
-    az_log(LOG_DEBUG, "stlen = %d", stlen);
-    lseek(cxt->_fd, stlen, SEEK_SET);
+    cxt->position = pos;
+
+    az_log(LOG_DEBUG, "INIT: cxt->channel = %d, cxt->position = %ld", cxt->channel, cxt->position);
+    lseek(cxt->_fd, cxt->position, SEEK_SET);
 
     az_log(LOG_DEBUG, ">>> INIT: finished");
+    return 0;
+}
+
+static int
+_sync_file(sc_follow_context *cxt)
+{
+    sc_log_message *msg, *resp;
+    size_t n = strlen(cxt->displayName);
+    int64_t pos = 0;
+
+    size_t size;
+    unsigned char* p;    
+
+    az_log(LOG_DEBUG, ">>> SYNC: started");
+
+    mhash_with_size(cxt->filename, cxt->position, &p, &size);
+
+    msg = sc_log_message_new(size);
+    if (!msg) {
+        return -1;
+    }
+
+    msg->code    = SCM_MSG_SYNC;
+    msg->channel = cxt->channel;
+
+    memcpy(msg->content, p, size);
+    free(p);
+
+    // send_message
+    if (sc_aggregator_connection_send_message(cxt->connection, msg) != 0) {
+        az_log(LOG_DEBUG, "SYNC: connection has bren.");
+        return -1;
+    }
+
+    if (sc_aggregator_connection_receive_message(cxt->connection, &resp) != 0) {
+        az_log(LOG_DEBUG, "SYNC: connection has bren. (on receiving)");
+        return -3;
+    }
+
+    pos = *(int64_t*)(&resp->content);
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+    pos = bswap_64(pos);
+#endif
+
+    if (resp->code != SCM_RESP_OK) {
+        az_log(LOG_DEBUG, ">>> SYNC: failed (code=%d)", resp->code);
+        cxt->position = pos;
+    }
+    az_log(LOG_DEBUG, "SYNC: cxt->position = %d", cxt->position);
+    lseek(cxt->_fd, cxt->position, SEEK_SET);
+
+    az_log(LOG_DEBUG, ">>> SYNC: finished");
     return 0;
 }
 
@@ -201,13 +253,13 @@ _sc_follow_context_proc_data(sc_follow_context* cxt, sc_log_message* msg, sc_log
     *ppresp = NULL;
 
     if ((ret = sc_aggregator_connection_send_message(cxt->connection, msg)) != 0) {
-	// connection broken
-	az_log(LOG_DEBUG, "DATA: connection has broken.");
+	// connection bren
+	az_log(LOG_DEBUG, "DATA: connection has bren.");
 	return ret;
     }
 
     if ((ret = sc_aggregator_connection_receive_message(cxt->connection, ppresp)) != 0) {
-	az_log(LOG_DEBUG, "DATA: connection has broken. (on receiving) = %d", ret);
+	az_log(LOG_DEBUG, "DATA: connection has bren. (on receiving) = %d", ret);
 	return ret;
     }
 
@@ -221,13 +273,13 @@ _sc_follow_context_proc_rele(sc_follow_context* cxt, sc_log_message* msg, sc_log
     *ppresp = NULL;
 
     if ((ret = sc_aggregator_connection_send_message(cxt->connection, msg)) != 0) {
-	// connection broken
-	az_log(LOG_DEBUG, "RELE: connection has broken.");
+	// connection bren
+	az_log(LOG_DEBUG, "RELE: connection has bren.");
 	return ret;
     }
 
     if ((ret = sc_aggregator_connection_receive_message(cxt->connection, ppresp)) != 0) {
-	az_log(LOG_DEBUG, "RELE: connection has broken. (on receiving) = %d", ret);
+	az_log(LOG_DEBUG, "RELE: connection has bren. (on receiving) = %d", ret);
 	// reconnect
 	return ret;
     }
@@ -319,8 +371,9 @@ _run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
             time(&t);
             cb0 = __w3cdatetime(msgbuf->content, BUFSIZE, t);
 
+            msgbuf->content[cb0++] = ':';
             msgbuf->content[cb0++] = ' ';
-            msgbuf->content[cb0] = '\0';
+            msgbuf->content[cb0]   = '\0';
         }
 
         cb = _sc_follow_context_read_line(cxt, msgbuf->content + cb0, BUFSIZE - cb0);
@@ -334,9 +387,9 @@ _run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
         assert(cxt->channel != 0);
         az_log(LOG_DEBUG, "reading file...");
 
-        msgbuf->code    = SCM_MSG_DATA;
-        msgbuf->channel = cxt->channel;
-        msgbuf->length  = cb0 + cb;
+        msgbuf->code           = SCM_MSG_DATA;
+        msgbuf->channel        = cxt->channel;
+        msgbuf->content_length = cb0 + cb;
     }
 
     if (_sc_follow_context_proc_data(cxt, msgbuf, presp) != 0) {
@@ -759,7 +812,7 @@ do_rotate(sc_aggregator_connection_ref conn)
             cxt = li->object;
             if (strcmp(cxt->filename, fn) == 0) {
 		if (strcmp(cxt->displayName, dn) == 0) {
-                    // ok, I'm already following it.
+                    // , I'm already following it.
                     not_found = 0;
 		} else {
 		    // displayName has rotated.

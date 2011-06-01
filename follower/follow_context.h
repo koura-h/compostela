@@ -3,10 +3,11 @@
 #define __FOLLOW_CONTEXT_H__
 
 typedef struct _sc_follow_context {
-    char *filename;
     int channel;
-    // off_t current_position;
-    off_t filesize;
+    //
+    char *filename;
+    off_t position;
+    // off_t filesize;
     mode_t mode;
     int _fd;
     //

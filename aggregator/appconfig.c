@@ -6,13 +6,15 @@
 
 #include "appconfig.h"
 
+#include "azlist.h"
 #include "azlog.h"
 
-char* g_config_server_logdir = NULL;
-char* g_config_server_addr = NULL;
-int g_config_server_port = 0;
+char*    g_config_server_logdir = NULL;
+char*    g_config_server_addr = NULL;
+int      g_config_server_port = 0;
+int      g_config_hostname_lookups = 0;
 
-int g_config_hostname_lookups = 0;
+az_list* g_config_pattern_list = NULL;
 
 int
 _pick_global(yaml_parser_t* parser)

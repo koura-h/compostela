@@ -213,7 +213,7 @@ void
 _dump(sc_log_message* msg)
 {
     az_log(LOG_DEBUG, ">>>DATA");
-    fwrite(&msg->content, msg->length, 1, stderr);
+    fwrite(&msg->content, msg->content_length, 1, stderr);
     // fflush(stderr);
     az_log(LOG_DEBUG, "<<<DATA");
 }
@@ -312,34 +312,39 @@ _do_trunc_file(const char* path, off_t pos)
     return 0;
 }
 
-/*
 int
-_do_stat(const char *remote_addr, const char* fname, struct stat *pst)
+_sc_connection_send(sc_connection* conn, sc_log_message* msg)
 {
-    char path[PATH_MAX];
-    __mk_path(remote_addr, fname, path, sizeof(path));
+    size_t len = offsetof(sc_log_message, content) + msg->content_length;
 
-    return stat(path, pst);
+    msg->code            = htons(msg->code);
+    msg->channel         = htons(msg->channel);
+    msg->content_length  = htonl(msg->content_length);
+
+    return sendall(conn->socket, msg, len, 0);
 }
 
+
 int
-_do_md5(const char* remote_addr, const char* fname, off_t fsize, unsigned char* md5buf)
+handler_dummy(sc_log_message* msg, sc_connection* conn)
 {
-    char path[PATH_MAX];
-    __mk_path(remote_addr, fname, path, sizeof(path));
+    sc_log_message* ng = sc_log_message_new(0);
+    // haha
+    ng->code    = SCM_RESP_NG;
+    ng->channel = 0;
 
-    return __md5_with_size(path, fsize, md5buf);
+    _sc_connection_send(conn, ng);
+    sc_log_message_destroy(ng);
+
+    return 0;
 }
-*/
-
 int
 handler_init(sc_log_message* msg, sc_connection* conn)
 {
     int n;
     int64_t stlen = 0;
-    int32_t slen = msg->length - sizeof(int32_t);
+    int32_t slen = msg->content_length - sizeof(int32_t);
 
-    // char path[PATH_MAX];
     unsigned char *mhash = NULL;
     size_t mhash_size = 0;
     struct stat st;
@@ -355,28 +360,25 @@ handler_init(sc_log_message* msg, sc_connection* conn)
     p[slen] = '\0';
 
     channel = sc_channel_new(p, conn);
-
-    // __mk_path(conn->remote_addr, channel->filename, path, sizeof(path));
-
-    if (attr & 0x80000000) {
-        memset(&st, 0, sizeof(st));
-        stat(channel->__filename_fullpath, &st);
-        mhash_with_size(channel->__filename_fullpath, st.st_size, &mhash, &mhash_size);
-        stlen = st.st_size;
-
-	dump_mhash(mhash, mhash_size);
-
-        az_log(LOG_DEBUG, "channel->filename = %s", channel->filename);
-        az_log(LOG_DEBUG, "conn->remote_addr = %s", conn->remote_addr);
-    }
-
     sc_connection_register_channel(conn, channel);
 
-    ok = sc_log_message_new(sizeof(int32_t) + mhash_size);
+    memset(&st, 0, sizeof(st));
+    if (stat(channel->__filename_fullpath, &st) == 0) {
+        stlen = st.st_size;
+    }
+    az_log(LOG_DEBUG, "channel->filename = %s, position = %ld", channel->filename, stlen);
+    az_log(LOG_DEBUG, "conn->remote_addr = %s", conn->remote_addr);
+
+    if (attr & 0x80000000) {
+        mhash_with_size(channel->__filename_fullpath, st.st_size, &mhash, &mhash_size);
+	dump_mhash(mhash, mhash_size);
+    }
+
+    ok = sc_log_message_new(sizeof(int64_t) + mhash_size);
     // haha
-    ok->code    = htons(SCM_RESP_OK);
-    ok->channel = htons(channel->id);
-    ok->length  = htonl(sizeof(stlen) + mhash_size);
+    ok->code    = SCM_RESP_OK;
+    ok->channel = channel->id;
+
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     stlen = bswap_64(stlen);
 #endif
@@ -384,8 +386,9 @@ handler_init(sc_log_message* msg, sc_connection* conn)
     if (mhash) {
         memcpy(ok->content + sizeof(stlen), mhash, mhash_size);
     }
-    // haha
-    n = sendall(conn->socket, ok, offsetof(sc_log_message, content) + sizeof(stlen) + mhash_size, 0);
+
+    _sc_connection_send(conn, ok);
+    sc_log_message_destroy(ok);
 
     free(mhash);
     return 0;
@@ -401,19 +404,18 @@ handler_data(sc_log_message* msg, sc_connection* conn, sc_channel* channel)
 
     // __mk_path(conn->remote_addr, channel->filename, path, sizeof(path));
 
-    sc_log_message* ok = sc_log_message_new(sizeof(int32_t));
     az_log(LOG_DEBUG, "channel_id = %d", msg->channel);
-    _do_merge_file(conn->remote_addr, channel->filename, msg->content, msg->length);
-    _do_append_file(channel->__filename_fullpath, msg->content, msg->length);
+    _do_merge_file(conn->remote_addr, channel->filename, msg->content, msg->content_length);
+    _do_append_file(channel->__filename_fullpath, msg->content, msg->content_length);
 
-    // haha
-    ok->code    = htons(SCM_RESP_OK);
-    ok->channel = htons(msg->channel);
-    ok->length  = htonl(sizeof(int32_t));
+    sc_log_message* ok = sc_log_message_new(sizeof(int32_t));
+
+    ok->code    = SCM_RESP_OK;
+    ok->channel = msg->channel;
+
     memset(ok->content, 0, sizeof(int32_t));
-    // haha
-    n = sendall(conn->socket, ok, offsetof(sc_log_message, content) + sizeof(int32_t), 0);
-    // _dump(msg);
+
+    n = _sc_connection_send(conn, ok);
     sc_log_message_destroy(ok);
 
     return 0;
@@ -427,14 +429,14 @@ handler_rele(sc_log_message* msg, sc_connection* conn, sc_channel* channel)
 
     sc_log_message* ok = sc_log_message_new(sizeof(int32_t));
 
-    ok->code    = htons(SCM_RESP_OK);
-    ok->channel = htons(msg->channel);
-    ok->length  = htonl(sizeof(int32_t));
+    ok->code    = SCM_RESP_OK;
+    ok->channel = msg->channel;
+
     memset(ok->content, 0, sizeof(int32_t));
 
-    n = sendall(conn->socket, ok, offsetof(sc_log_message, content) + sizeof(int32_t), 0);
-
+    n = _sc_connection_send(conn, ok);
     sc_log_message_destroy(ok);
+
     return 0;
 }
 
@@ -458,9 +460,9 @@ handler_seek(sc_log_message* msg, sc_connection* conn, sc_channel* channel)
     _do_trunc_file(channel->__filename_fullpath, pos);
 
     // haha
-    ok->code    = htons(SCM_RESP_OK);
-    ok->channel = htons(msg->channel);
-    ok->length  = htonl(sizeof(int32_t));
+    ok->code    = SCM_RESP_OK;
+    ok->channel = msg->channel;
+
     memset(ok->content, 0, sizeof(int32_t));
     // haha
     n = sendall(conn->socket, ok, offsetof(sc_log_message, content) + sizeof(int32_t), 0);
@@ -481,40 +483,44 @@ do_receive(int epfd, sc_connection* conn)
 
     n = recvall(c, msg, offsetof(sc_log_message, content), 0);
     if (n > 0) {
-        msg->code    = ntohs(msg->code);
-	msg->channel = ntohs(msg->channel);
-        msg->length  = ntohl(msg->length);
-	az_log(LOG_DEBUG, "n = %d, code = %d, channel = %d, length = %d", n, msg->code, msg->channel, msg->length);
-	if (msg->length > 0) {
-            n = recvall(c, &msg->content, msg->length, 0);
-	    az_log(LOG_DEBUG, "n = %d", n, msg->code, msg->channel, msg->length);
+        msg->code           = ntohs(msg->code);
+	msg->channel        = ntohs(msg->channel);
+        msg->content_length = ntohl(msg->content_length);
+	az_log(LOG_DEBUG, "n = %d, code = %d, channel = %d, length = %d", n, msg->code, msg->channel, msg->content_length);
+	if (msg->content_length > 0) {
+            n = recvall(c, &msg->content, msg->content_length, 0);
+	    az_log(LOG_DEBUG, "n = %d", n, msg->code, msg->channel, msg->content_length);
 	}
 
 	code = msg->code;
 	if (msg->channel == 0) {
-	    // assert(code == SCM_MSG_INIT);
-	}
+            if (msg->code == SCM_MSG_INIT) {
+	        handler_init(msg, conn);
+            } else {
+                handler_dummy(msg, conn);
+            }
+	} else {
+            channel = sc_connection_channel(conn, msg->channel);
+	    if (!channel) {
+	        az_log(LOG_DEBUG, "conn=%p, I might be happened to restart?", conn);
+	        // assert(code == SCM_MSG_INIT);
+	    }
 
-        channel = sc_connection_channel(conn, msg->channel);
-	if (!channel) {
-	    az_log(LOG_DEBUG, "conn=%p, I might be happened to restart?", conn);
-	    // assert(code == SCM_MSG_INIT);
-	}
-
-	switch (msg->code) {
-	case SCM_MSG_INIT:
-	    handler_init(msg, conn);
-	    break;
-	case SCM_MSG_SEEK:
-	    handler_seek(msg, conn, channel);
-	    break;
-	case SCM_MSG_DATA:
-	    handler_data(msg, conn, channel);
-	    break;
-	case SCM_MSG_RELE:
-	    handler_rele(msg, conn, channel);
-	    break;
-	}
+	    switch (msg->code) {
+	    case SCM_MSG_INIT:
+	        handler_init(msg, conn);
+	        break;
+	    case SCM_MSG_SEEK:
+	        handler_seek(msg, conn, channel);
+	        break;
+	    case SCM_MSG_DATA:
+	        handler_data(msg, conn, channel);
+	        break;
+	    case SCM_MSG_RELE:
+	        handler_rele(msg, conn, channel);
+	        break;
+	    }
+        }
     } else if (n == 0) {
         struct epoll_event ev;
 
@@ -701,7 +707,12 @@ void
 handler_alarm(int sig, siginfo_t* sinfo, void* ptr)
 {
     struct itimerval itimer = {};
-    az_log(LOG_DEBUG, ">>> %s: BEGIN", __FUNCTION__);
+    time_t t;
+    char buf[256];
+
+    time(&t);
+    __w3cdatetime(buf, sizeof(buf), t);
+    az_log(LOG_DEBUG, ">>> %s: BEGIN (%s)", __FUNCTION__, buf);
 
     // do_rotate(g_connection);
 

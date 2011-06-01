@@ -47,7 +47,7 @@ _sc_follow_context_init(sc_follow_context* cxt, const char* dispname, int ftimes
 
     cxt->buffer = az_buffer_new(bufsize);
     cxt->message_buffer = sc_log_message_new(bufsize);
-    cxt->message_buffer->code = htons(SCM_MSG_NONE);
+    cxt->message_buffer->code = SCM_MSG_NONE;
 
     return cxt;
 }
@@ -102,8 +102,8 @@ sc_follow_context_open_file(sc_follow_context* cxt)
     }
 
     fstat(cxt->_fd, &st);
-    cxt->filesize = st.st_size;
-    cxt->mode = st.st_mode;
+    // cxt->filesize = st.st_size;
+    cxt->mode     = st.st_mode;
 
     return 0;
 }
@@ -118,7 +118,8 @@ sc_follow_context_close_file(sc_follow_context* cxt)
     }
 
     cxt->mode = 0;
-    cxt->filesize = 0;
+    // cxt->filesize = 0;
+    cxt->position = 0;
 
     return 0;
 }
@@ -128,7 +129,7 @@ sc_follow_context_reset(sc_follow_context* cxt)
 {
     sc_follow_context_close_file(cxt);
     az_buffer_reset(cxt->buffer);
-    cxt->message_buffer->code = htons(SCM_MSG_NONE);
+    cxt->message_buffer->code = SCM_MSG_NONE;
 }
 
 int
@@ -150,9 +151,8 @@ sc_follow_context_close(sc_follow_context* cxt)
     }
 
     msg = sc_log_message_new(sizeof(int32_t));
-    msg->code    = htons(SCM_MSG_RELE);
-    msg->channel = htons(cxt->channel);
-    msg->length  = htonl(sizeof(int32_t));
+    msg->code    = SCM_MSG_RELE;
+    msg->channel = cxt->channel;
     memset(msg->content, 0, sizeof(int32_t));
 
     if ((ret = sc_aggregator_connection_send_message(cxt->connection, msg)) != 0) {

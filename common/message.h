@@ -13,12 +13,14 @@ enum {
     SCM_MSG_MOVE,
     //
     SCM_RESP_OK = 1001,
+    SCM_RESP_NG = 1999,
 };
 
 typedef struct _sc_log_message {
     int16_t code;
     int16_t channel;
-    int32_t length;
+    // int32_t length;
+    int32_t content_length;
     char    content[1];
 } sc_log_message;
 
