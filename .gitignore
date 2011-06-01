@@ -10,10 +10,13 @@ Makefile.in
 compostela
 comfollower
 *.o
+*.la
+*.lo
 a.out
 tmp
 *.tar.gz
 config.log
 config.status
 .deps
+.libs
 work

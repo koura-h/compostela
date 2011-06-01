@@ -366,6 +366,7 @@ _run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
             _init_file(cxt);
         }
 
+#if 0
         if (cxt->ftimestamp) {
             time_t t;
             time(&t);
@@ -375,6 +376,7 @@ _run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
             msgbuf->content[cb0++] = ' ';
             msgbuf->content[cb0]   = '\0';
         }
+#endif
 
         cb = _sc_follow_context_read_line(cxt, msgbuf->content + cb0, BUFSIZE - cb0);
         if (cb == 0) {

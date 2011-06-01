@@ -13,6 +13,7 @@
 #include <libgen.h>
 #include <assert.h>
 #include <getopt.h>
+#include <fnmatch.h>
 
 #include <byteswap.h>
 
@@ -42,8 +43,7 @@ typedef struct _sc_channel {
     char *__filename_fullpath;
     //
     struct _sc_connection* connection;
-    //
-    //struct _sc_channel *_next;
+    sc_aggregate_context* aggregate_context;
 } sc_channel;
 
 ////////////////////////////////////////
@@ -254,13 +254,24 @@ _create_dir(const char* fpath, mode_t mode)
 
 
 int
-_do_merge_file(const char* host, const char* path, const char *data, size_t len)
+_do_merge_file(const char* host, const char* path, const char *data, size_t len, sc_aggregate_context* aggr)
 {
-    int fd;
+    int fd, cb0 = 0;
+    char tsbuf[32];
     char fullp[PATH_MAX];
 
     __mk_path(g_config_server_logdir, path, fullp, sizeof(fullp));
     az_log(LOG_DEBUG, "merging to ... [%s]", fullp);
+
+    if (aggr->f_timestamp) {
+        time_t t;
+        time(&t);
+        cb0 = __w3cdatetime(&tsbuf[1], sizeof(tsbuf) - 1, t);
+        if (cb0 > 0) {
+            tsbuf[0] = ' ';
+            cb0++;
+        }
+    }
 
     fd = open(fullp, O_APPEND | O_RDWR | O_CREAT, g_config_default_mode);
     if (fd == -1) {
@@ -268,7 +279,10 @@ _do_merge_file(const char* host, const char* path, const char *data, size_t len)
 	return -1;
     }
     write(fd, host, strlen(host));
-    write(fd, " ", 1);
+    if (cb0 > 0) {
+        write(fd, tsbuf, cb0);
+    }
+    write(fd, "> ", 2);
     write(fd, data, len);
     close(fd);
 
@@ -279,7 +293,6 @@ int
 _do_append_file(const char* path, const char *data, size_t len)
 {
     int fd;
-    // char path[PATH_MAX], dir[PATH_MAX];
     char dir[PATH_MAX];
 
     strcpy(dir, path);
@@ -324,6 +337,24 @@ _sc_connection_send(sc_connection* conn, sc_log_message* msg)
     return sendall(conn->socket, msg, len, 0);
 }
 
+sc_aggregate_context*
+__find_aggregate_context(const char* fname)
+{
+    az_list* li = g_config_aggregate_context_list;
+    while (li) {
+        sc_aggregate_context* cxt = li->object;
+        int n = fnmatch(cxt->path, fname, 0);
+        az_log(LOG_DEBUG, "cxt->path = %s, fname = %s, result = %d", cxt->path, fname, n);
+        if (n == 0) {
+            // found
+            return cxt;
+        }
+
+        li = li->next;
+    }
+
+    return NULL;
+}
 
 int
 handler_dummy(sc_log_message* msg, sc_connection* conn)
@@ -338,6 +369,7 @@ handler_dummy(sc_log_message* msg, sc_connection* conn)
 
     return 0;
 }
+
 int
 handler_init(sc_log_message* msg, sc_connection* conn)
 {
@@ -361,6 +393,8 @@ handler_init(sc_log_message* msg, sc_connection* conn)
 
     channel = sc_channel_new(p, conn);
     sc_connection_register_channel(conn, channel);
+
+    channel->aggregate_context = __find_aggregate_context(channel->__filename_fullpath);
 
     memset(&st, 0, sizeof(st));
     if (stat(channel->__filename_fullpath, &st) == 0) {
@@ -398,15 +432,18 @@ int
 handler_data(sc_log_message* msg, sc_connection* conn, sc_channel* channel)
 {
     int n;
-    // char path[PATH_MAX];
+    sc_aggregate_context* aggr = channel->aggregate_context;
 
-    az_log(LOG_DEBUG, ">>> handler_data");
+    az_log(LOG_DEBUG, ">>> handler_data (channel_id = %d)", msg->channel);
+    az_log(LOG_DEBUG, ">>> aggr.f_separate = %d", aggr->f_separate);
+    az_log(LOG_DEBUG, ">>> aggr.f_merge = %d", aggr->f_merge);
 
-    // __mk_path(conn->remote_addr, channel->filename, path, sizeof(path));
-
-    az_log(LOG_DEBUG, "channel_id = %d", msg->channel);
-    _do_merge_file(conn->remote_addr, channel->filename, msg->content, msg->content_length);
-    _do_append_file(channel->__filename_fullpath, msg->content, msg->content_length);
+    if (!aggr || aggr->f_merge) {
+        _do_merge_file(conn->remote_addr, channel->filename, msg->content, msg->content_length, aggr);
+    }
+    if (!aggr || aggr->f_separate) {
+        _do_append_file(channel->__filename_fullpath, msg->content, msg->content_length);
+    }
 
     sc_log_message* ok = sc_log_message_new(sizeof(int32_t));
 
