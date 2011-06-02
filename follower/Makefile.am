@@ -10,6 +10,6 @@ comfollower_SOURCES = main.c \
 	../common/message.c ../common/message.h ../common/supports.h ../common/supports.c
 comfollower_LDADD = ../common/libaz.la
 
-comlogger_SOURCES = logger.c
-
+comlogger_SOURCES = logger.c \
+	../common/supports.h ../common/supports.c
 comlogger_LDADD = ../common/libaz.la

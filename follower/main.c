@@ -483,7 +483,7 @@ _do_receive_data(int c, const void *data, size_t dlen, void* info)
             if (strncmp(line, "OPEN ", 5) == 0) {
                 _do_controller_direct_open_with_line(line, sizeof(line), contr);
 
-                send(c, "OK\n", 3, 0);
+                send(c, "OK\r\n", 4, 0);
                 ret = 1;
             }
         }
@@ -574,11 +574,12 @@ do_server_socket(int epfd, int* socks, int num_socks)
     ssize_t n;
     sc_controller* contr = NULL;
 
+    int nfd, c = -1;
     int done = 0;
 
     // for (;;) {
     {
-        int nfd, c = -1;
+        int c = -1;
 
         nfd = epoll_wait(epfd, events, MAX_EVENTS, 0);
         for (i = 0; i < nfd; i++) {
@@ -624,6 +625,8 @@ do_server_socket(int epfd, int* socks, int num_socks)
             }
         }
     }
+
+    return nfd > 0 ? 1 : 0;
 }
 
 /////
@@ -695,7 +698,9 @@ main(int argc, char** argv)
 	int sl = 1, rc = 0, cc;
         cxt = NULL;
 
-        do_server_socket(epfd, &g_conn_controller, 1);
+        if (do_server_socket(epfd, &g_conn_controller, 1) > 0) {
+            sl = 0;
+        }
 
 	for (li = g_context_list; li; li = li->next) {
             resp = NULL;
@@ -794,7 +799,7 @@ do_rotate(sc_aggregator_connection_ref conn)
     time(&t);
     localtime_r(&t, &tm);
     for (lp = g_config_patterns; lp; lp = lp->next) {
-        pe = (sc_config_pattern_entry*)li->object;
+        pe = (sc_config_pattern_entry*)lp->object;
         char fn[PATH_MAX], dn[PATH_MAX];
 
         if (pe->rotate && strchr(pe->path, '%')) {
