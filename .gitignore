@@ -9,6 +9,7 @@ Makefile.in
 /missing
 compostela
 comfollower
+comlogger
 *.o
 *.la
 *.lo
