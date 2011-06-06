@@ -156,26 +156,26 @@ int
 az_buffer_push_back(az_buffer_ref buf, const char* src, size_t ssize)
 {
     // assert(buf->cursor == buf->buffer);
-    size_t n, r = 0;
+    size_t n, r = 0, u = 0;
 
     if (!src || ssize <= 0) {
         return 0;
     }
 
     n = buf->cursor - buf->buffer;
-    if (ssize + buf->used - n > buf->size) { // pushback + unread
-        // sc_log(LOG_DEBUG, "ssize = %d, buf->used = %d, buf->size = %d", ssize, buf->used, buf->size);
-        // return -1;
+    u = az_buffer_unread_bytes(buf);
+    if (ssize + u > buf->size) { // pushback + unread
         az_buffer_resize(buf, buf->size + ssize * 2); // adhoc
     }
 
-    if (buf->used > 0 && n < ssize) {
-        r = ssize - n;
+    if (buf->used > 0) {
+        r = (ssize > n ? ssize - n : 0);
         memmove(buf->cursor + r, buf->cursor, buf->used);
-        buf->used += r;
     }
-    buf->cursor -= ssize - r;
+    buf->cursor -= (n > ssize - r ? ssize - r : n);
+    assert(buf->cursor >= buf->buffer);
     memcpy(buf->cursor, src, ssize);
+    buf->used = u + (ssize > n ? ssize : n);
 
     return 0;
 }

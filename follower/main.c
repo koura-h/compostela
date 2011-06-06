@@ -318,7 +318,7 @@ _sc_follow_context_read_line(sc_follow_context* cxt, char* dst, size_t dsize)
             if (errno == EAGAIN) { // for read()
                 n = 0;
             }
-	    m = az_buffer_push_back(cxt->buffer, p, dst + dsize - p);
+	    m = az_buffer_push_back(cxt->buffer, p, u);
 	    az_log(LOG_DEBUG, "cxt = %p (at %s)", cxt, cxt->filename);
 	    assert(m == 0);
 	    return n;
