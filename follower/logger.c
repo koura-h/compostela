@@ -47,7 +47,9 @@ main(int argc, char** argv)
     argv += optind;
 
     if (argc > 0) {
-        msg = argv[0];
+        int n = strlen(argv[0]);
+        msg = malloc(n + 3);
+        snprintf(msg, n + 3, "%s\r\n", argv[0]);
     }
 
     if (!path || !tag) {

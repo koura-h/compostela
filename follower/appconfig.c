@@ -15,7 +15,7 @@ int   g_config_server_port = 0;
 int   g_config_waiting_seconds = 1;
 char* g_config_control_path = NULL;
 
-sc_config_pattern_entry* g_config_patterns = NULL;
+az_list* g_config_patterns = NULL;
 
 sc_config_pattern_entry*
 _pick_pattern_entry(yaml_parser_t* parser)
@@ -66,7 +66,7 @@ _pick_pattern_entry(yaml_parser_t* parser)
     return ret;
 }
 
-sc_config_pattern_entry *
+az_list*
 _pick_patterns(yaml_parser_t* parser)
 {
     az_list* li = NULL;

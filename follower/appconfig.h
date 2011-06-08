@@ -8,12 +8,14 @@ typedef struct _sc_config_pattern_entry {
     int append_timestamp;
 } sc_config_pattern_entry;
 
-extern char                   * g_config_server_address;
-extern int                      g_config_server_port;
-extern int                      g_config_waiting_seconds;
-extern char                   * g_config_control_path;
+#include "azlist.h"
 
-extern sc_config_pattern_entry* g_config_patterns;
+extern char   * g_config_server_address;
+extern int      g_config_server_port;
+extern int      g_config_waiting_seconds;
+extern char   * g_config_control_path;
+
+extern az_list* g_config_patterns;
 
 extern int load_config_file(const char* fname);
 extern void clean_config();

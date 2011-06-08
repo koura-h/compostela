@@ -366,7 +366,6 @@ _run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
             _init_file(cxt);
         }
 
-#if 0
         if (cxt->ftimestamp) {
             time_t t;
             time(&t);
@@ -376,7 +375,6 @@ _run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
             msgbuf->content[cb0++] = ' ';
             msgbuf->content[cb0]   = '\0';
         }
-#endif
 
         cb = _sc_follow_context_read_line(cxt, msgbuf->content + cb0, BUFSIZE - cb0);
         if (cb == 0) {
@@ -452,12 +450,43 @@ _do_controller_direct_open_with_line(char* linebuf, size_t size, sc_controller* 
 
     fprintf(stderr, "OPEN: displayName=(%s)\n", p);
 
-    cxt = sc_follow_context_new_with_fd(contr->socket_fd, p, 0, BUFSIZE, g_connection);
+    cxt = sc_follow_context_new_with_fd(contr->socket_fd, p, 1, BUFSIZE, g_connection);
     g_context_list = az_list_add(g_context_list, cxt);
+
+    set_non_blocking(contr->socket_fd);
 
     return 0;
 }
 
+int
+_do_receive_data_0(int c, const void *data, size_t dlen, void* info)
+{
+    sc_controller* contr = (sc_controller*)info;
+    char line[2048], *p, *px;
+    size_t u;
+    int n, ret = 0;
+
+    az_log(LOG_DEBUG, "data = %p, dlen = %d", data, dlen);
+
+    if (az_buffer_unread_bytes(contr->buffer) == 0) {
+        az_buffer_reset(contr->buffer);
+    }
+    n = az_buffer_fetch_bytes(contr->buffer, data, dlen);
+
+    while ((n = az_buffer_read_line(contr->buffer, line, sizeof(line), &u)) == 0) {
+        line[u] = '\0';
+
+        az_log(LOG_DEBUG, "line = [%s]", line);
+        if (strncmp(line, "OPEN ", 5) == 0) {
+            _do_controller_direct_open_with_line(line, sizeof(line), contr);
+
+            send(c, "OK\r\n", 4, 0);
+            ret = 1;
+        }
+    }
+
+    return ret;
+}
 int
 _do_receive_data(int c, const void *data, size_t dlen, void* info)
 {
@@ -495,6 +524,36 @@ _do_receive_data(int c, const void *data, size_t dlen, void* info)
 enum { MAX_EVENTS = 16 };
 
 int
+do_receive_0(int c, void* info)
+{
+    sc_controller* contr = (sc_controller*)info;
+    ssize_t n;
+    int16_t code = 0;
+
+    az_log(LOG_DEBUG, ">>> do_receive_0");
+
+    unsigned char* databuf = (unsigned char*)malloc(BUFSIZE);
+    
+    n = recv(c, databuf, BUFSIZE, 0);
+    if (n > 0) {
+        if (_do_receive_data_0(c, databuf, n, contr) != 0) {
+            // close(c);
+        }
+    } else if (n == 0) {
+        az_log(LOG_DEBUG, "connection closed");
+        close(c);
+    } else {
+        az_log(LOG_DEBUG, "recvall error.");
+        close(c);
+    }
+
+    az_log(LOG_DEBUG, "<<< do_receive_0");
+
+    free(databuf);
+    return 0;
+}
+
+int
 do_receive(int epfd, int c, void* info)
 {
     sc_controller* contr = (sc_controller*)info;
@@ -509,7 +568,7 @@ do_receive(int epfd, int c, void* info)
     if (n > 0) {
         if (_do_receive_data(c, databuf, n, contr) != 0) {
             epoll_ctl(epfd, EPOLL_CTL_DEL, c, NULL);
-            // close(c);
+            close(c);
 
             contr->socket_fd = -1;
             sc_controller_destroy(contr);
@@ -523,6 +582,7 @@ do_receive(int epfd, int c, void* info)
 
         close(c);
 
+        contr->socket_fd = -1;
         sc_controller_destroy(contr);
     } else {
         struct epoll_event ev;
@@ -533,6 +593,7 @@ do_receive(int epfd, int c, void* info)
 
         close(c);
 
+        contr->socket_fd = -1;
         sc_controller_destroy(contr);
     }
 
@@ -602,27 +663,29 @@ do_server_socket(int epfd, int* socks, int num_socks)
 
                     az_log(LOG_DEBUG, "accepted");
 
-                    // conn = sc_connection_new((struct sockaddr*)&ss, sslen, c);
                     contr = sc_controller_new(c);
 
-                    set_non_blocking(c);
+                    do_receive_0(contr->socket_fd, contr);
+
+/*
                     ev.events = EPOLLIN | EPOLLET;
-                    // ev.data.ptr = conn;
                     ev.data.ptr = contr;
                     if (epoll_ctl(epfd, EPOLL_CTL_ADD, c, &ev) < 0) {
                         az_log(LOG_DEBUG, "epoll set insertion error: fd = %d", c);
                         continue;
                     }
                     done = 1;
+*/
                     break;
                 }
             }
 
+/*
             if (!done) {
-                // sc_connection* conn = events[i].data.ptr;
                 contr = events[i].data.ptr;
                 do_receive(epfd, contr->socket_fd, contr);
             }
+*/
         }
     }
 
@@ -713,7 +776,9 @@ main(int argc, char** argv)
 	    } else if (ret == -1) {
 	        // error occurred
 	        perror("_run_follow_context");
-	        exit(1);
+	        // exit(1);
+                g_context_list = az_list_delete(g_context_list, cxt);
+                sc_follow_context_destroy(cxt);
 	    } else {
 	        // in proceessed any bytes.
 	        sl = 0;
@@ -842,6 +907,7 @@ do_rotate(sc_aggregator_connection_ref conn)
         }
     }
 
+#if 0
     for (li = g_controller_list; li; li = li->next) {
         char dn[PATH_MAX];
         sc_controller* contr = li->object;
@@ -874,4 +940,5 @@ do_rotate(sc_aggregator_connection_ref conn)
             az_log(LOG_DEBUG, "added: new follow_context => displayName: %s", dn);
         }
     }
+#endif
 }
