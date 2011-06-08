@@ -9,6 +9,7 @@ AC_CONFIG_HEADER([config.h])
 
 # Checks for programs.
 AC_PROG_CC
+AC_PROG_LIBTOOL
 
 # Checks for libraries.
 AC_CHECK_LIB(cunit, CU_initialize_registry)
@@ -18,7 +19,7 @@ AC_CHECK_LIB(yaml, yaml_parser_initialize)
 # Checks for header files.
 AC_HEADER_DIRENT
 AC_HEADER_STDC
-AC_CHECK_HEADERS([fcntl.h netdb.h stddef.h stdlib.h string.h sys/socket.h sys/time.h])
+AC_CHECK_HEADERS([fcntl.h netdb.h stddef.h stdlib.h string.h sys/socket.h sys/time.h syslog.h])
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
@@ -40,7 +41,8 @@ AC_FUNC_MKTIME
 AC_FUNC_REALLOC
 AC_FUNC_STAT
 AC_FUNC_STRFTIME
-AC_CHECK_FUNCS([localtime_r memchr memmove memset mkdir socket strcasecmp strchr strdup strtoul])
+AC_FUNC_VPRINTF
+AC_CHECK_FUNCS([localtime_r memchr memmove memset mkdir socket strcasecmp strchr strdup strerror strtoul])
 
 AM_CONDITIONAL(ENABLE_TESTS, test "$ac_cv_lib_cunit_CU_initialize_registry" = yes)
 
@@ -69,6 +71,7 @@ patheval()
 AC_DEFINE_UNQUOTED(PATH_SYSCONFDIR, "`patheval $sysconfdir`", [sysconfdir])
 
 AC_CONFIG_FILES([Makefile
+                 common/Makefile
                  aggregator/Makefile
                  follower/Makefile
                  tests/Makefile

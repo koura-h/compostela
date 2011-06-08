@@ -5,6 +5,7 @@
 #include <string.h>
 #include <errno.h>
 #include <stdarg.h>
+#include <stdlib.h>
 #include <signal.h>
 
 #include <sys/stat.h>
@@ -14,6 +15,7 @@
 #include <openssl/md5.h>
 
 #include "supports.h"
+#include "azlog.h"
 
 
 char*
@@ -111,6 +113,18 @@ recvall(int s, void* buf, ssize_t size, int opt)
     return (p - p0 ? p - p0 : cb);
 }
 
+int
+set_non_blocking(int s)
+{
+    int flag = fcntl(s, F_GETFL, 0);
+    if (fcntl(s, F_SETFL, flag | O_NONBLOCK) != 0) {
+        perror("fcntl");
+        return -1;
+    }
+    return 0;
+}
+
+//////
 
 int
 mhash_with_size(const char* fpath, off_t fsize, unsigned char** mhash, size_t* mhash_size)
@@ -153,11 +167,11 @@ int
 dump_mhash(const unsigned char* mhash, size_t mhash_size)
 {
     int i;
-    fprintf(stderr, "mhash:");
+    fprintf(stdout, "mhash:");
     for (i = 0; i < mhash_size; i++) {
-        fprintf(stderr, " %02x", mhash[i]);
+        fprintf(stdout, " %02x", mhash[i]);
     }
-    fprintf(stderr, "\n");
+    fprintf(stdout, "\n");
     return 0;
 }
 
@@ -166,7 +180,7 @@ dump_mhash(const unsigned char* mhash, size_t mhash_size)
 void
 handler_sigpipe(int sig, siginfo_t* sinfo, void* ptr)
 {
-    fprintf(stderr, ">>> SIGPIPE raised!\n");
+    az_log(LOG_DEBUG, ">>> SIGPIPE raised!");
 }
 
 int

@@ -43,6 +43,26 @@ az_list_delete_all(az_list* li)
     }
 }
 
+az_list*
+az_list_reverse(az_list* li)
+{
+    az_list *top, *i;
+    if (!li) {
+        return NULL;
+    }
+
+    top = li, i = li->next;
+    top->next = NULL;
+    while (i) {
+        az_list* next = i;
+        i = i->next;
+        next->next = top;
+        top = next;
+    }
+
+    return top;
+}
+
 void
 az_list_foreach(az_list* li, az_foreach_func func, void* data)
 {

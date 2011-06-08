@@ -18,6 +18,9 @@ int
 recvall(int s, void* buf, ssize_t size, int opt);
 
 int
+set_non_blocking(int s);
+
+int
 mhash_with_size(const char* fpath, off_t fsize, unsigned char** mhash, size_t* mhash_size);
 
 int

@@ -14,9 +14,13 @@ typedef int (*az_find_func)(void*, void*);
 typedef void (*az_delete_func)(void*);
 
 az_list* az_list_new();
-az_list* az_list_add(az_list* list, void* object);
-az_list* az_list_delete(az_list* list, void *object);
-az_list* az_list_delete_all(az_list* list);
+
+az_list* az_list_add(az_list* li, void* object);
+
+az_list* az_list_delete(az_list* li, void *object);
+az_list* az_list_delete_all(az_list* li);
+
+az_list* az_list_reverse(az_list *li);
 
 void az_list_foreach(az_list* li, az_foreach_func func, void* data);
 
