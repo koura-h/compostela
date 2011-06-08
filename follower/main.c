@@ -748,7 +748,11 @@ main(int argc, char** argv)
     sc_aggregator_connection_open(g_connection);
     az_log(LOG_DEBUG, "conn = %p", g_connection);
 
+#if 0
     g_conn_controller = setup_server_unix_socket(PATH_CONTROL);
+#else
+    g_conn_controller = setup_server_unix_socket(g_config_control_path ? g_config_control_path : PATH_CONTROL);
+#endif
 
     do_rotate(g_connection);
     set_rotation_timer();
