@@ -254,7 +254,7 @@ _create_dir(const char* fpath, mode_t mode)
 
 
 int
-_do_merge_file(const char* host, const char* path, const char *data, size_t len, sc_aggregate_context* aggr)
+_do_merge_file(const char* host, const char* path, time_t ts, const char *data, size_t len, sc_aggregate_context* aggr)
 {
     int fd, cb0 = 0;
     char tsbuf[32];
@@ -263,10 +263,8 @@ _do_merge_file(const char* host, const char* path, const char *data, size_t len,
     __mk_path(g_config_server_logdir, path, fullp, sizeof(fullp));
     az_log(LOG_DEBUG, "merging to ... [%s]", fullp);
 
-    if (aggr->f_timestamp) {
-        time_t t;
-        time(&t);
-        cb0 = __w3cdatetime(&tsbuf[1], sizeof(tsbuf) - 1, t);
+    if (aggr && aggr->f_timestamp) {
+        cb0 = __w3cdatetime(&tsbuf[1], sizeof(tsbuf) - 1, ts);
         if (cb0 > 0) {
             tsbuf[0] = ' ';
             cb0++;
@@ -282,7 +280,7 @@ _do_merge_file(const char* host, const char* path, const char *data, size_t len,
     if (cb0 > 0) {
         write(fd, tsbuf, cb0);
     }
-    write(fd, "> ", 2);
+    write(fd, ": ", 2);
     write(fd, data, len);
     close(fd);
 
@@ -432,17 +430,29 @@ int
 handler_data(sc_log_message* msg, sc_connection* conn, sc_channel* channel)
 {
     int n;
+    time_t t;
+    int32_t attr;
+    const char *text;
+    size_t len;
     sc_aggregate_context* aggr = channel->aggregate_context;
 
     az_log(LOG_DEBUG, ">>> handler_data (channel_id = %d)", msg->channel);
-    az_log(LOG_DEBUG, ">>> aggr.f_separate = %d", aggr->f_separate);
-    az_log(LOG_DEBUG, ">>> aggr.f_merge = %d", aggr->f_merge);
+    az_log(LOG_DEBUG, ">>> aggr.f_separate = %d, aggr.f_merge = %d", aggr->f_separate, aggr->f_merge);
+
+    attr = ntohl(*(int32_t*)msg->content);
+    t = *(time_t*)(msg->content + sizeof(int32_t));
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+    t = bswap_64(t);
+#endif
+    text = msg->content + sizeof(int32_t) + sizeof(time_t);
+    len = msg->content_length - (sizeof(int32_t) + sizeof(time_t));
+    az_log(LOG_DEBUG, ">>> attr = %d", attr);
 
     if (!aggr || aggr->f_merge) {
-        _do_merge_file(conn->remote_addr, channel->filename, msg->content, msg->content_length, aggr);
+        _do_merge_file(conn->remote_addr, channel->filename, t, text, len, aggr);
     }
     if (!aggr || aggr->f_separate) {
-        _do_append_file(channel->__filename_fullpath, msg->content, msg->content_length);
+        _do_append_file(channel->__filename_fullpath, text, len);
     }
 
     sc_log_message* ok = sc_log_message_new(sizeof(int32_t));

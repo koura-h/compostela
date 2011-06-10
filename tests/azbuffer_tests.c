@@ -59,7 +59,7 @@ test_azbuffer_2()
 {
     char cb[10];
     size_t n = 0;
-    int ret = 0;
+    int ret = 0, err = 0;
 
     az_buffer_ref buf = az_buffer_new(10);
     CU_ASSERT(az_buffer_unused_bytes(buf) == 10);
@@ -70,7 +70,7 @@ test_azbuffer_2()
     CU_ASSERT(az_buffer_unread_bytes(buf) == 3);
 
     memset(cb, 0, sizeof(cb));
-    CU_ASSERT(az_buffer_read_line(buf, cb, sizeof(cb), &n) == 2);
+    CU_ASSERT(az_buffer_read_line(buf, cb, sizeof(cb), &n, &err) == 0);
     CU_ASSERT(az_buffer_unused_bytes(buf) == 7);
     CU_ASSERT(az_buffer_unread_bytes(buf) == 0);
     CU_ASSERT(n == 3);
@@ -81,7 +81,7 @@ test_azbuffer_2()
     CU_ASSERT(az_buffer_unread_bytes(buf) == 4);
 
     memset(cb, 0, sizeof(cb));
-    CU_ASSERT(az_buffer_read_line(buf, cb, sizeof(cb), &n) == 0);
+    CU_ASSERT(az_buffer_read_line(buf, cb, sizeof(cb), &n, &err) == 1);
     CU_ASSERT(az_buffer_unused_bytes(buf) == 3);
     CU_ASSERT(az_buffer_unread_bytes(buf) == 2);
     CU_ASSERT(strcmp(cb, "t\n") == 0);

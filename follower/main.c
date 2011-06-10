@@ -33,6 +33,10 @@
 
 /////
 
+enum { ERR_MUST_RECONNECT = 1001 };
+
+enum { CONTROLLER_BUFFER_SIZE = 2048 };
+
 int
 setup_server_unix_socket(const char* path)
 {
@@ -90,7 +94,7 @@ sc_controller_new(int cc)
     if (c) {
         memset(c, 0, sizeof(sc_controller));
         c->socket_fd = cc;
-        c->buffer = az_buffer_new(2048);
+        c->buffer = az_buffer_new(CONTROLLER_BUFFER_SIZE);
     }
     return c;
 }
@@ -287,12 +291,22 @@ _sc_follow_context_proc_rele(sc_follow_context* cxt, sc_log_message* msg, sc_log
     return ret;
 }
 
+
+/*
+ * 1) read ok, line completed.
+ * 2) read ok, line not completed. (LF not found)
+ * 3) readable but no data available, wait.
+ * 4) read error.
+ *
+ *
+ */
 int
-_sc_follow_context_read_line(sc_follow_context* cxt, char* dst, size_t dsize)
+_sc_follow_context_read_line(sc_follow_context* cxt, char* dst, size_t dsize, size_t* used)
 {
-    int n, m;
+    int n, m, err;
     char* p = dst;
-    size_t u;
+
+    *used = 0;
 
     az_log(LOG_DEBUG, ">>> _sc_follow_context_read_line");
 
@@ -301,14 +315,17 @@ _sc_follow_context_read_line(sc_follow_context* cxt, char* dst, size_t dsize)
         n = az_buffer_fetch_file(cxt->buffer, cxt->_fd, az_buffer_unused_bytes(cxt->buffer));
 	if (n <= 0) {
             if (errno == EAGAIN) { // for read()
-                return 0;
+                return n;
             }
 	    return n;
 	}
     }
 
-    while ((n = az_buffer_read_line(cxt->buffer, p, dst + dsize - p, &u)) != 0) {
-        assert(n > 0); // Now, 'dst/dsize' assumes to have enough space always.
+    err = 0;
+    return az_buffer_read_line(cxt->buffer, p, dst + dsize - p, used, &err);
+#if 0
+    while ((n = az_buffer_read_line(cxt->buffer, p, dst + dsize - p, &u, &err)) != 1) {
+        assert(n == 0); // Now, 'dst/dsize' assumes to have enough space always.
 
 	p += u;
 
@@ -329,6 +346,7 @@ _sc_follow_context_read_line(sc_follow_context* cxt, char* dst, size_t dsize)
     *p = '\0';
     az_log(LOG_DEBUG, "<<< _sc_follow_context_read_line (%s)", dst);
     return p - dst;
+#endif
 }
 
 /**
@@ -342,8 +360,10 @@ static int
 _run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
 {
     // sc_log_message* msg = sc_log_message_new(csize), *resp = NULL;
-    int ret = 0, cb = 0, cb0 = 0;
+    int ret = 0, cb = 0, cb0 = sizeof(int32_t) + sizeof(int64_t);
     off_t cur;
+    time_t t;
+    int32_t attr = 0;
 
     assert(presp != NULL);
     *presp = NULL;
@@ -354,7 +374,7 @@ _run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
     if (!sc_aggregator_connection_is_opened(cxt->connection)) {
         // disconnected. but show must go on.
 	az_log(LOG_DEBUG, ">>> %s: PLEASE RECONNECT NOW!", __FUNCTION__);
-	return 1001;
+	return ERR_MUST_RECONNECT;
     }
 
     if (msgbuf->code == SCM_MSG_NONE) {
@@ -366,23 +386,23 @@ _run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
             _init_file(cxt);
         }
 
-        if (cxt->ftimestamp) {
-            time_t t;
-            time(&t);
-            cb0 = __w3cdatetime(msgbuf->content, BUFSIZE, t);
-
-            msgbuf->content[cb0++] = ':';
-            msgbuf->content[cb0++] = ' ';
-            msgbuf->content[cb0]   = '\0';
-        }
-
-        cb = _sc_follow_context_read_line(cxt, msgbuf->content + cb0, BUFSIZE - cb0);
-        if (cb == 0) {
+        time(&t);
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+        t = bswap_64(t);
+#endif
+        cb = 0;
+        ret = _sc_follow_context_read_line(cxt, msgbuf->content + cb0, BUFSIZE - cb0, &cb);
+        if (ret == 0 && cb == 0) {
             // EOF, wait for the new available data.
 	    return 1;
-        } else if (cb < 0) {
+        } else if (ret == -1) {
             return -1;
         }
+
+        attr |= (ret ? 0x80000000 : 0); // line completed?
+
+        memcpy(msgbuf->content, &attr, sizeof(int32_t));
+        memcpy(msgbuf->content + sizeof(int32_t), &t, sizeof(time_t));
 
         // assert(cxt->channel != 0);
         if (cxt->channel == 0) {
@@ -398,7 +418,7 @@ _run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
     if (_sc_follow_context_proc_data(cxt, msgbuf, presp) != 0) {
 	// should reconnect
 	az_log(LOG_DEBUG, "You should reconnect now");
-	return 1001;
+	return ERR_MUST_RECONNECT;
     }
 
     if ((*presp)->code == SCM_RESP_OK) {
@@ -462,9 +482,9 @@ int
 _do_receive_data_0(int c, const void *data, size_t dlen, void* info)
 {
     sc_controller* contr = (sc_controller*)info;
-    char line[2048], *p, *px;
+    char line[CONTROLLER_BUFFER_SIZE], *p, *px;
     size_t u;
-    int n, ret = 0;
+    int n, ret = 0, err = 0;
 
     az_log(LOG_DEBUG, "data = %p, dlen = %d", data, dlen);
 
@@ -473,7 +493,7 @@ _do_receive_data_0(int c, const void *data, size_t dlen, void* info)
     }
     n = az_buffer_fetch_bytes(contr->buffer, data, dlen);
 
-    while ((n = az_buffer_read_line(contr->buffer, line, sizeof(line), &u)) == 0) {
+    while ((n = az_buffer_read_line(contr->buffer, line, sizeof(line), &u, &err)) > 0) {
         line[u] = '\0';
 
         az_log(LOG_DEBUG, "line = [%s]", line);
@@ -491,9 +511,9 @@ int
 _do_receive_data(int c, const void *data, size_t dlen, void* info)
 {
     sc_controller* contr = (sc_controller*)info;
-    char line[2048], *p, *px;
+    char line[CONTROLLER_BUFFER_SIZE], *p, *px;
     size_t u;
-    int n, ret = 0;
+    int n, ret = 0, err = 0;
 
     az_log(LOG_DEBUG, "data = %p, dlen = %d", data, dlen);
 
@@ -502,7 +522,7 @@ _do_receive_data(int c, const void *data, size_t dlen, void* info)
     }
     n = az_buffer_fetch_bytes(contr->buffer, data, dlen);
 
-    while ((n = az_buffer_read_line(contr->buffer, line, sizeof(line), &u)) == 0) {
+    while ((n = az_buffer_read_line(contr->buffer, line, sizeof(line), &u, &err)) > 0) {
         line[u] = '\0';
 
         if (contr->f_direct) {
@@ -774,7 +794,7 @@ main(int argc, char** argv)
             cxt = li->object;
             ret = _run_follow_context(cxt, &resp);
 	    if (ret > 0) {
-	        if (ret >= 1000) {
+	        if (ret == ERR_MUST_RECONNECT) {
 		    rc = 1;
 		}
 	    } else if (ret == -1) {
