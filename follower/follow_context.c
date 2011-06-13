@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <fcntl.h>
 #include <assert.h>
 #include <byteswap.h>
@@ -58,7 +59,7 @@ sc_follow_context_new(const char* fname, const char* dispname, int ftimestamp, s
     sc_follow_context* cxt = NULL;
 
     cxt = (sc_follow_context*)malloc(sizeof(sc_follow_context));
-    if (cxt = _sc_follow_context_init(cxt, dispname, ftimestamp, bufsize, conn)) {
+    if ((cxt = _sc_follow_context_init(cxt, dispname, ftimestamp, bufsize, conn))) {
         if (fname) {
             cxt->filename = strdup(fname);
 	    if (!cxt->filename) {
@@ -77,7 +78,7 @@ sc_follow_context_new_with_fd(int fd, const char* dispname, int ftimestamp, size
     sc_follow_context* cxt = NULL;
 
     cxt = (sc_follow_context*)malloc(sizeof(sc_follow_context));
-    if (cxt = _sc_follow_context_init(cxt, dispname, ftimestamp, bufsize, conn)) {
+    if ((cxt = _sc_follow_context_init(cxt, dispname, ftimestamp, bufsize, conn))) {
         cxt->_fd = fd;
     }
 
@@ -88,7 +89,7 @@ int
 sc_follow_context_open_file(sc_follow_context* cxt)
 {
     struct stat st;
-    int flags;
+    // int flags;
 
     if (cxt->_fd != -1) {
         az_log(LOG_DEBUG, "already opened.");

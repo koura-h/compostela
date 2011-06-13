@@ -18,7 +18,7 @@ az_list* az_list_new();
 az_list* az_list_add(az_list* li, void* object);
 
 az_list* az_list_delete(az_list* li, void *object);
-az_list* az_list_delete_all(az_list* li);
+void az_list_delete_all(az_list* li);
 
 az_list* az_list_reverse(az_list *li);
 
