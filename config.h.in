@@ -3,8 +3,30 @@
 /* Define to 1 if the `closedir' function returns void instead of `int'. */
 #undef CLOSEDIR_VOID
 
+/* Define to one of `_getb67', `GETB67', `getb67' for Cray-2 and Cray-YMP
+   systems. This function is required for `alloca.c' support on those systems.
+   */
+#undef CRAY_STACKSEG_END
+
+/* Define to 1 if using `alloca.c'. */
+#undef C_ALLOCA
+
 /* Define to 1 if you have the `alarm' function. */
 #undef HAVE_ALARM
+
+/* Define to 1 if you have `alloca', as a function or macro. */
+#undef HAVE_ALLOCA
+
+/* Define to 1 if you have <alloca.h> and it should be used (not on Ultrix).
+   */
+#undef HAVE_ALLOCA_H
+
+/* Define to 1 if you have the `btowc' function. */
+#undef HAVE_BTOWC
+
+/* Define to 1 if you have the declaration of `getenv', and to 0 if you don't.
+   */
+#undef HAVE_DECL_GETENV
 
 /* Define to 1 if you have the <dirent.h> header file, and it defines `DIR'.
    */
@@ -38,6 +60,12 @@
    to 0 otherwise. */
 #undef HAVE_MALLOC
 
+/* Define to 1 if you have the `mbsrtowcs' function. */
+#undef HAVE_MBSRTOWCS
+
+/* Define to 1 if <wchar.h> declares mbstate_t. */
+#undef HAVE_MBSTATE_T
+
 /* Define to 1 if you have the `memchr' function. */
 #undef HAVE_MEMCHR
 
@@ -46,6 +74,9 @@
 
 /* Define to 1 if you have the <memory.h> header file. */
 #undef HAVE_MEMORY_H
+
+/* Define to 1 if you have the `mempcpy' function. */
+#undef HAVE_MEMPCPY
 
 /* Define to 1 if you have the `memset' function. */
 #undef HAVE_MEMSET
@@ -132,13 +163,18 @@
 /* Define to 1 if you have the `vprintf' function. */
 #undef HAVE_VPRINTF
 
+/* Define to 1 if you have the <wchar.h> header file. */
+#undef HAVE_WCHAR_H
+
+/* Define to 1 if you have the <wctype.h> header file. */
+#undef HAVE_WCTYPE_H
+
+/* Define to 1 if you have the `wmempcpy' function. */
+#undef HAVE_WMEMPCPY
+
 /* Define to 1 if `lstat' dereferences a symlink specified with a trailing
    slash. */
 #undef LSTAT_FOLLOWS_SLASHED_SYMLINK
-
-/* Define to the sub-directory in which libtool stores uninstalled libraries.
-   */
-#undef LT_OBJDIR
 
 /* Name of package */
 #undef PACKAGE
@@ -161,6 +197,14 @@
 /* sysconfdir */
 #undef PATH_SYSCONFDIR
 
+/* If using the C implementation of alloca, define if you know the
+   direction of stack growth for your system; otherwise it will be
+   automatically deduced at runtime.
+	STACK_DIRECTION > 0 => grows toward higher addresses
+	STACK_DIRECTION < 0 => grows toward lower addresses
+	STACK_DIRECTION = 0 => direction of growth unknown */
+#undef STACK_DIRECTION
+
 /* Define to 1 if you have the ANSI C header files. */
 #undef STDC_HEADERS
 
@@ -176,6 +220,9 @@
 /* Define to empty if `const' does not conform to ANSI C. */
 #undef const
 
+/* Define to rpl_fnmatch if the replacement function should be used. */
+#undef fnmatch
+
 /* Define to the type of a signed integer type of width exactly 16 bits if
    such a type exists and the standard includes do not define it. */
 #undef int16_t
@@ -190,6 +237,9 @@
 
 /* Define to rpl_malloc if the replacement function should be used. */
 #undef malloc
+
+/* Define to a type if <wchar.h> does not define. */
+#undef mbstate_t
 
 /* Define to `int' if <sys/types.h> does not define. */
 #undef mode_t
