@@ -26,7 +26,7 @@ _pick_aggregate_context(yaml_parser_t* parser)
     (sc_aggregate_context*)malloc(sizeof(sc_aggregate_context));
 
     int done = 0;
-    int error = 0;
+    // int error = 0;
     yaml_event_t event, event_value;
 
     memset(ret, 0, sizeof(sc_aggregate_context));
@@ -44,23 +44,23 @@ _pick_aggregate_context(yaml_parser_t* parser)
             if (!yaml_parser_parse(parser, &event_value)) {
                 return ret;
             }
-            if (strcmp(event.data.scalar.value, "path") == 0) {
-                ret->path = strdup(event_value.data.scalar.value);
+            if (strcmp((const char*)event.data.scalar.value, "path") == 0) {
+                ret->path = strdup((const char*)event_value.data.scalar.value);
                 az_log(LOG_DEBUG, "ret->path = %s", ret->path);
-            } else if (strcmp(event.data.scalar.value, "displayName") == 0) {
-                ret->displayName = strdup(event_value.data.scalar.value);
-            } else if (strcmp(event.data.scalar.value, "rotate") == 0) {
-                ret->f_rotate = strcasecmp(event_value.data.scalar.value, "true") == 0 ? 1 : 0;
-            } else if (strcmp(event.data.scalar.value, "timestamp") == 0) {
-                ret->f_timestamp = strcasecmp(event_value.data.scalar.value, "true") == 0 ? 1 : 0;
-            } else if (strcmp(event.data.scalar.value, "mode") == 0) {
-                if (strcasecmp(event_value.data.scalar.value, "both") == 0) {
+            } else if (strcmp((const char*)event.data.scalar.value, "displayName") == 0) {
+                ret->displayName = strdup((const char*)event_value.data.scalar.value);
+            } else if (strcmp((const char*)event.data.scalar.value, "rotate") == 0) {
+                ret->f_rotate = strcasecmp((const char*)event_value.data.scalar.value, "true") == 0 ? 1 : 0;
+            } else if (strcmp((const char*)event.data.scalar.value, "timestamp") == 0) {
+                ret->f_timestamp = strcasecmp((const char*)event_value.data.scalar.value, "true") == 0 ? 1 : 0;
+            } else if (strcmp((const char*)event.data.scalar.value, "mode") == 0) {
+                if (strcasecmp((const char*)event_value.data.scalar.value, "both") == 0) {
                     ret->f_separate = 1;
                     ret->f_merge    = 1;
-                } else if (strcasecmp(event_value.data.scalar.value, "separate") == 0) {
+                } else if (strcasecmp((const char*)event_value.data.scalar.value, "separate") == 0) {
                     ret->f_separate = 1;
                     ret->f_merge    = 0;
-                } else if (strcasecmp(event_value.data.scalar.value, "merge") == 0) {
+                } else if (strcasecmp((const char*)event_value.data.scalar.value, "merge") == 0) {
                     ret->f_separate = 0;
                     ret->f_merge    = 1;
                 }
@@ -130,7 +130,7 @@ _pick_global(yaml_parser_t* parser)
 {
     int done = 0;
     int error = 0;
-    int st = 0;
+    // int st = 0;
 
     yaml_event_t event, evvalue;
     while (!done) {
@@ -144,31 +144,31 @@ _pick_global(yaml_parser_t* parser)
             break;
         }
 
-        if (strcmp(event.data.scalar.value, "logdir") == 0) {
+        if (strcmp((const char*)event.data.scalar.value, "logdir") == 0) {
             if (!yaml_parser_parse(parser, &evvalue)) {
                 error = 1;
                 break;
             }
 
-            g_config_server_logdir = strdup(evvalue.data.scalar.value);
+            g_config_server_logdir = strdup((const char*)evvalue.data.scalar.value);
             yaml_event_delete(&evvalue);
-        } else if (strcmp(event.data.scalar.value, "port") == 0) {
+        } else if (strcmp((const char*)event.data.scalar.value, "port") == 0) {
             if (!yaml_parser_parse(parser, &evvalue)) {
                 error = 1;
                 break;
             }
 
-            g_config_server_port = strtoul(evvalue.data.scalar.value, NULL, 10);
+            g_config_server_port = strtoul((const char*)evvalue.data.scalar.value, NULL, 10);
             yaml_event_delete(&evvalue);
-        } else if (strcmp(event.data.scalar.value, "hostnameLookups") == 0) {
+        } else if (strcmp((const char*)event.data.scalar.value, "hostnameLookups") == 0) {
             if (!yaml_parser_parse(parser, &evvalue)) {
                 error = 1;
                 break;
             }
 
-            g_config_hostname_lookups = (strcmp(evvalue.data.scalar.value, "true") == 0 ? 1 : 0);
+            g_config_hostname_lookups = (strcmp((const char*)evvalue.data.scalar.value, "true") == 0 ? 1 : 0);
             yaml_event_delete(&evvalue);
-        } else if (strcmp(event.data.scalar.value, "patterns") == 0) {
+        } else if (strcmp((const char*)event.data.scalar.value, "patterns") == 0) {
             assert(g_config_aggregate_context_list == NULL);
             g_config_aggregate_context_list = _pick_patterns(parser);
             g_config_aggregate_context_list = az_list_reverse(g_config_aggregate_context_list);

@@ -24,7 +24,7 @@ _pick_pattern_entry(yaml_parser_t* parser)
     (sc_config_pattern_entry*)malloc(sizeof(sc_config_pattern_entry));
 
     int done = 0;
-    int error = 0;
+    // int error = 0;
     yaml_event_t event, event_value;
 
     memset(ret, 0, sizeof(sc_config_pattern_entry));
@@ -39,14 +39,14 @@ _pick_pattern_entry(yaml_parser_t* parser)
             if (!yaml_parser_parse(parser, &event_value)) {
                 return ret;
             }
-            if (strcmp(event.data.scalar.value, "path") == 0) {
-                ret->path = strdup(event_value.data.scalar.value);
-            } else if (strcmp(event.data.scalar.value, "displayName") == 0) {
-                ret->displayName = strdup(event_value.data.scalar.value);
-            } else if (strcmp(event.data.scalar.value, "rotate") == 0) {
-                ret->rotate = strcasecmp(event_value.data.scalar.value, "true") == 0 ? 1 : 0;
-            } else if (strcmp(event.data.scalar.value, "timestamp") == 0) {
-                ret->append_timestamp = strcasecmp(event_value.data.scalar.value, "true") == 0 ? 1 : 0;
+            if (strcmp((const char*)event.data.scalar.value, "path") == 0) {
+                ret->path = strdup((const char*)event_value.data.scalar.value);
+            } else if (strcmp((const char*)event.data.scalar.value, "displayName") == 0) {
+                ret->displayName = strdup((const char*)event_value.data.scalar.value);
+            } else if (strcmp((const char*)event.data.scalar.value, "rotate") == 0) {
+                ret->rotate = strcasecmp((const char*)event_value.data.scalar.value, "true") == 0 ? 1 : 0;
+            } else if (strcmp((const char*)event.data.scalar.value, "timestamp") == 0) {
+                ret->append_timestamp = strcasecmp((const char*)event_value.data.scalar.value, "true") == 0 ? 1 : 0;
             }
             yaml_event_delete(&event_value);
             break;
@@ -114,7 +114,7 @@ _pick_global(yaml_parser_t* parser)
 {
     int done = 0;
     int error = 0;
-    int st = 0;
+    // int st = 0;
 
     yaml_event_t event, evvalue;
     while (!done) {
@@ -128,40 +128,40 @@ _pick_global(yaml_parser_t* parser)
             break;
         }
 
-        if (strcmp(event.data.scalar.value, "server") == 0) {
+        if (strcmp((const char*)event.data.scalar.value, "server") == 0) {
             if (!yaml_parser_parse(parser, &evvalue)) {
                 error = 1;
                 break;
             }
 
-            g_config_server_address = strdup(evvalue.data.scalar.value);
+            g_config_server_address = strdup((const char*)evvalue.data.scalar.value);
             yaml_event_delete(&evvalue);
-        } else if (strcmp(event.data.scalar.value, "port") == 0) {
+        } else if (strcmp((const char*)event.data.scalar.value, "port") == 0) {
             if (!yaml_parser_parse(parser, &evvalue)) {
                 error = 1;
                 break;
             }
 
-            g_config_server_port = strtoul(evvalue.data.scalar.value, NULL, 10);
+            g_config_server_port = strtoul((const char*)evvalue.data.scalar.value, NULL, 10);
             yaml_event_delete(&evvalue);
-        } else if (strcmp(event.data.scalar.value, "controlPath") == 0) {
+        } else if (strcmp((const char*)event.data.scalar.value, "controlPath") == 0) {
             if (!yaml_parser_parse(parser, &evvalue)) {
                 error = 1;
                 break;
             }
 
-            g_config_control_path = strdup(evvalue.data.scalar.value);
+            g_config_control_path = strdup((const char*)evvalue.data.scalar.value);
             yaml_event_delete(&evvalue);
-        } else if (strcmp(event.data.scalar.value, "waitingSeconds") == 0 ||
-                   strcmp(event.data.scalar.value, "waiting") == 0) {
+        } else if (strcmp((const char*)event.data.scalar.value, "waitingSeconds") == 0 ||
+                   strcmp((const char*)event.data.scalar.value, "waiting") == 0) {
             if (!yaml_parser_parse(parser, &evvalue)) {
                 error = 1;
                 break;
             }
 
-            g_config_waiting_seconds = strtoul(evvalue.data.scalar.value, NULL, 10);
+            g_config_waiting_seconds = strtoul((const char*)evvalue.data.scalar.value, NULL, 10);
             yaml_event_delete(&evvalue);
-        } else if (strcmp(event.data.scalar.value, "patterns") == 0) {
+        } else if (strcmp((const char*)event.data.scalar.value, "patterns") == 0) {
             g_config_patterns = _pick_patterns(parser);
         }
 

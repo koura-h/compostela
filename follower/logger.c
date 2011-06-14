@@ -1,9 +1,11 @@
+/* $Id$ */
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <stdio.h>
 #include <string.h>
 #include <getopt.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include "supports.h"
 

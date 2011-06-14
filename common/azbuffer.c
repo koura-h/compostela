@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <unistd.h>
 #include "azbuffer.h"
 #include "azlog.h"
 
@@ -119,15 +120,24 @@ az_buffer_fetch_file(az_buffer_ref buf, int fd, size_t size)
 }
 
 int
-az_buffer_read_line(az_buffer_ref buf, char* dst, size_t dsize, size_t* dused)
+az_buffer_read_line(az_buffer_ref buf, char* dst, size_t dsize, size_t* dused, int *error)
 {
-    char* p, *ret;
+    char* p;
     size_t len;
+
+    assert(dst != NULL);
+    assert(dused != NULL);
+
+    *dused = 0;
 
     len = az_buffer_unread_bytes(buf);
     if (len <= 0) {
         // we should fetch new data from buffering source
-        return 1;
+        return -1;
+    }
+
+    if (len > dsize) {
+        len = dsize;
     }
 
     p = memchr(buf->cursor, '\n', len);
@@ -135,21 +145,13 @@ az_buffer_read_line(az_buffer_ref buf, char* dst, size_t dsize, size_t* dused)
         len = p - buf->cursor + 1;
     }
 
-    if (!dst) {
-        assert(dused != NULL);
-        *dused = len;
-        return 0;
-    }
-
+    az_buffer_read(buf, len, dst, dsize);
     if (len < dsize) {
-        az_buffer_read(buf, len, dst, dsize);
         dst[len] = '\0';
-        *dused = len;
-        return (p ? 0 : 2);
-    } else {
-        // requiring efficient space for reading
-        return -101;
     }
+    *dused = len;
+
+    return (p ? 1 : 0);
 }
 
 int

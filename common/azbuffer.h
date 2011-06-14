@@ -2,6 +2,7 @@
 #define __AZ_BUFFER_H__
 
 
+
 typedef struct _az_buffer *az_buffer_ref;
 
 #if defined(__cplusplus)
@@ -13,7 +14,8 @@ void az_buffer_destroy(az_buffer_ref buf);
 
 int az_buffer_read(az_buffer_ref buf, size_t len, char* dst, size_t dstsize);
 ssize_t az_buffer_unread_bytes(az_buffer_ref buf);
-int az_buffer_read_line(az_buffer_ref buf, char* dst, size_t dsize, size_t* dused);
+ssize_t az_buffer_unused_bytes(az_buffer_ref buf);
+int az_buffer_read_line(az_buffer_ref buf, char* dst, size_t dsize, size_t* dused, int *error);
 
 
 int az_buffer_resize(az_buffer_ref buf, size_t newsize);
