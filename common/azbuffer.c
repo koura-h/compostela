@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <unistd.h>
 #include "azbuffer.h"
 #include "azlog.h"
 
@@ -121,7 +122,7 @@ az_buffer_fetch_file(az_buffer_ref buf, int fd, size_t size)
 int
 az_buffer_read_line(az_buffer_ref buf, char* dst, size_t dsize, size_t* dused, int *error)
 {
-    char* p, *ret;
+    char* p;
     size_t len;
 
     assert(dst != NULL);

@@ -1,5 +1,6 @@
 /* $Id$ */
 #include "azlist.h"
+
 #include <string.h>
 #include <stdlib.h>
 
@@ -32,7 +33,7 @@ az_list_delete(az_list* li, void *object)
     }
 }
 
-az_list*
+void
 az_list_delete_all(az_list* li)
 {
     az_list *i = li, *i0;

@@ -17,6 +17,7 @@
 #include <libgen.h>
 #include <time.h>
 #include <byteswap.h>
+#include <unistd.h>
 
 #include "azlist.h"
 #include "azbuffer.h"
@@ -30,6 +31,11 @@
 #include "supports.h"
 
 #include "config.h"
+
+/////
+
+static int set_rotation_timer();
+static int do_rotate(sc_aggregator_connection_ref conn);
 
 /////
 
@@ -170,7 +176,8 @@ _init_file(sc_follow_context *cxt)
 #endif
     az_log(LOG_DEBUG, ">>> INIT: len = %d", len);
     if (len > sizeof(int64_t)) {
-        unsigned char* buf, *p;
+        unsigned char *buf;
+        char *p;
         size_t bufsize, psize;
 
         p = resp->content + sizeof(int64_t);
@@ -198,11 +205,12 @@ _init_file(sc_follow_context *cxt)
     return 0;
 }
 
+#if 0
 static int
 _sync_file(sc_follow_context *cxt)
 {
     sc_log_message *msg, *resp;
-    size_t n = strlen(cxt->displayName);
+    // size_t n = strlen(cxt->displayName);
     int64_t pos = 0;
 
     size_t size;
@@ -249,6 +257,7 @@ _sync_file(sc_follow_context *cxt)
     az_log(LOG_DEBUG, ">>> SYNC: finished");
     return 0;
 }
+#endif
 
 static int
 _sc_follow_context_proc_data(sc_follow_context* cxt, sc_log_message* msg, sc_log_message** ppresp)
@@ -270,6 +279,7 @@ _sc_follow_context_proc_data(sc_follow_context* cxt, sc_log_message* msg, sc_log
     return ret;
 }
 
+#if 0
 static int
 _sc_follow_context_proc_rele(sc_follow_context* cxt, sc_log_message* msg, sc_log_message** ppresp)
 {
@@ -290,6 +300,7 @@ _sc_follow_context_proc_rele(sc_follow_context* cxt, sc_log_message* msg, sc_log
 
     return ret;
 }
+#endif
 
 
 /*
@@ -303,7 +314,7 @@ _sc_follow_context_proc_rele(sc_follow_context* cxt, sc_log_message* msg, sc_log
 int
 _sc_follow_context_read_line(sc_follow_context* cxt, char* dst, size_t dsize, size_t* used)
 {
-    int n, m, err;
+    int n, err;
     char* p = dst;
 
     *used = 0;
@@ -360,10 +371,10 @@ static int
 _run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
 {
     // sc_log_message* msg = sc_log_message_new(csize), *resp = NULL;
-    int ret = 0, cb = 0, cb0 = sizeof(int32_t) + sizeof(int64_t);
-    off_t cur;
+    int ret = 0;
     time_t t;
     int32_t attr = 0;
+    size_t cb = 0, cb0 = sizeof(int32_t) + sizeof(int64_t);
 
     assert(presp != NULL);
     *presp = NULL;
@@ -387,9 +398,7 @@ _run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
         }
 
         time(&t);
-#if __BYTE_ORDER == __LITTLE_ENDIAN
-        t = bswap_64(t);
-#endif
+
         cb = 0;
         ret = _sc_follow_context_read_line(cxt, msgbuf->content + cb0, BUFSIZE - cb0, &cb);
         if (ret == 0 && cb == 0) {
@@ -400,6 +409,11 @@ _run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
         }
 
         attr |= (ret ? 0x80000000 : 0); // line completed?
+
+        attr = htonl(attr);
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+        t = bswap_64(t);
+#endif
 
         memcpy(msgbuf->content, &attr, sizeof(int32_t));
         memcpy(msgbuf->content + sizeof(int32_t), &t, sizeof(time_t));
@@ -482,7 +496,7 @@ int
 _do_receive_data_0(int c, const void *data, size_t dlen, void* info)
 {
     sc_controller* contr = (sc_controller*)info;
-    char line[CONTROLLER_BUFFER_SIZE], *p, *px;
+    char line[CONTROLLER_BUFFER_SIZE];
     size_t u;
     int n, ret = 0, err = 0;
 
@@ -491,6 +505,10 @@ _do_receive_data_0(int c, const void *data, size_t dlen, void* info)
     if (az_buffer_unread_bytes(contr->buffer) == 0) {
         az_buffer_reset(contr->buffer);
     }
+    if (az_buffer_unused_bytes(contr->buffer) < dlen) {
+        az_buffer_resize(contr->buffer, dlen + az_buffer_size(contr->buffer));
+    }
+    assert(az_buffer_unused_bytes(contr->buffer) >= dlen);
     n = az_buffer_fetch_bytes(contr->buffer, data, dlen);
 
     while ((n = az_buffer_read_line(contr->buffer, line, sizeof(line), &u, &err)) > 0) {
@@ -511,7 +529,7 @@ int
 _do_receive_data(int c, const void *data, size_t dlen, void* info)
 {
     sc_controller* contr = (sc_controller*)info;
-    char line[CONTROLLER_BUFFER_SIZE], *p, *px;
+    char line[CONTROLLER_BUFFER_SIZE];
     size_t u;
     int n, ret = 0, err = 0;
 
@@ -520,6 +538,10 @@ _do_receive_data(int c, const void *data, size_t dlen, void* info)
     if (az_buffer_unread_bytes(contr->buffer) == 0) {
         az_buffer_reset(contr->buffer);
     }
+    if (az_buffer_unused_bytes(contr->buffer) < dlen) {
+        az_buffer_resize(contr->buffer, dlen + az_buffer_size(contr->buffer));
+    }
+    assert(az_buffer_unused_bytes(contr->buffer) >= dlen);
     n = az_buffer_fetch_bytes(contr->buffer, data, dlen);
 
     while ((n = az_buffer_read_line(contr->buffer, line, sizeof(line), &u, &err)) > 0) {
@@ -548,7 +570,6 @@ do_receive_0(int c, void* info)
 {
     sc_controller* contr = (sc_controller*)info;
     ssize_t n;
-    int16_t code = 0;
 
     az_log(LOG_DEBUG, ">>> do_receive_0");
 
@@ -578,7 +599,6 @@ do_receive(int epfd, int c, void* info)
 {
     sc_controller* contr = (sc_controller*)info;
     ssize_t n;
-    int16_t code = 0;
 
     az_log(LOG_DEBUG, ">>> do_receive");
 
@@ -594,8 +614,6 @@ do_receive(int epfd, int c, void* info)
             sc_controller_destroy(contr);
         }
     } else if (n == 0) {
-        struct epoll_event ev;
-
         az_log(LOG_DEBUG, "connection closed");
 
         epoll_ctl(epfd, EPOLL_CTL_DEL, c, NULL);
@@ -605,8 +623,6 @@ do_receive(int epfd, int c, void* info)
         contr->socket_fd = -1;
         sc_controller_destroy(contr);
     } else {
-        struct epoll_event ev;
-
         az_log(LOG_DEBUG, "recvall error.");
 
         epoll_ctl(epfd, EPOLL_CTL_DEL, c, NULL);
@@ -649,13 +665,13 @@ setup_epoll(int* socks, int num_socks)
 int
 do_server_socket(int epfd, int* socks, int num_socks)
 {
-    struct epoll_event ev, events[MAX_EVENTS];
+    struct epoll_event events[MAX_EVENTS];
     int i, j;
 
-    ssize_t n;
+    //ssize_t n;
     sc_controller* contr = NULL;
 
-    int nfd, c = -1;
+    int nfd;
     int done = 0;
 
     // for (;;) {
@@ -669,7 +685,6 @@ do_server_socket(int epfd, int* socks, int num_socks)
                 if (events[i].data.fd == socks[j]) {
                     struct sockaddr_storage ss;
                     socklen_t sslen = sizeof(ss);
-                    int err;
 
                     memset(&ss, 0, sizeof(ss));
                     c = accept(socks[j], (struct sockaddr*)&ss, &sslen);
@@ -725,7 +740,7 @@ main(int argc, char** argv)
 {
     sc_follow_context *cxt = NULL;
 
-    int ret, ch, i, epfd;
+    int ret, ch, epfd;
     sc_log_message *resp;
     char *conf = NULL;
 
@@ -782,7 +797,7 @@ main(int argc, char** argv)
 
     while (1) {
         az_list* li;
-	int sl = 1, rc = 0, cc;
+	int sl = 1, rc = 0;
         cxt = NULL;
 
         if (do_server_socket(epfd, &g_conn_controller, 1) > 0) {
@@ -851,7 +866,9 @@ handler_alarm(int sig, siginfo_t* sinfo, void* ptr)
 int
 set_rotation_timer()
 {
+#if 0
     double secs_left = 0.0L;
+#endif
     struct itimerval itimer = {};
     struct sigaction sa = {
         .sa_sigaction = handler_alarm,
@@ -883,7 +900,7 @@ do_rotate(sc_aggregator_connection_ref conn)
     time_t t;
     sc_follow_context* cxt = NULL;
     int not_found;
-    az_list *li, *lj, *lp;
+    az_list *li, *lp;
 
     time(&t);
     localtime_r(&t, &tm);
@@ -965,4 +982,5 @@ do_rotate(sc_aggregator_connection_ref conn)
         }
     }
 #endif
+    return 0;
 }

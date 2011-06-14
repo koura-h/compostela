@@ -6,6 +6,7 @@
 #include <string.h>
 #include <netdb.h>
 #include <assert.h>
+#include <unistd.h>
 
 #include "azlist.h"
 #include "azbuffer.h"

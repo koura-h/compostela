@@ -8,18 +8,21 @@
 #include <netdb.h>
 #include <string.h>
 #include <fcntl.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <signal.h>
 #include <libgen.h>
 #include <assert.h>
 #include <getopt.h>
 #include <fnmatch.h>
+#include <time.h>
 
 #include <byteswap.h>
 
 #include "message.h"
 #include "supports.h"
 
+#include "azbuffer.h"
 #include "azlist.h"
 #include "azlog.h"
 
@@ -37,10 +40,16 @@ const char *DEFAULT_CONF = PATH_SYSCONFDIR "/compostela.conf";
 
 ////////////////////////////////////////
 
+static int set_rotation_timer();
+
+////////////////////////////////////////
+
 typedef struct _sc_channel {
     int id;
     char *filename;
     char *__filename_fullpath;
+    //
+    az_buffer_ref buffer;
     //
     struct _sc_connection* connection;
     sc_aggregate_context* aggregate_context;
@@ -71,6 +80,8 @@ __mk_path(const char* parent, const char* fname, char *buf, size_t bufsize)
 }
 
 ////////////////////////////////////////
+enum { LINE_BUFFER_SIZE = 1024 };
+////////////////////////////////////////
 
 sc_channel*
 sc_channel_new(const char* fname, sc_connection* conn)
@@ -81,6 +92,7 @@ sc_channel_new(const char* fname, sc_connection* conn)
 	    channel->filename = strdup(fname);
 	    channel->__filename_fullpath = pathcat(g_config_server_logdir, conn->remote_addr, fname, NULL);
 	    az_log(LOG_DEBUG, "__filename_fullpath = %s", channel->__filename_fullpath);
+            channel->buffer = az_buffer_new(LINE_BUFFER_SIZE);
 	}
 	channel->connection = conn;
     }
@@ -91,6 +103,7 @@ void
 sc_channel_destroy(sc_channel* channel)
 {
     az_log(LOG_DEBUG, ">>> %s", __func__);
+    az_buffer_destroy(channel->buffer);
     free(channel->__filename_fullpath);
     free(channel->filename);
     free(channel);
@@ -147,7 +160,7 @@ sc_connection_set_remote_addr(sc_connection* conn, struct sockaddr* sa, socklen_
 void
 sc_connection_destroy(sc_connection* conn)
 {
-    sc_channel* c;
+    // sc_channel* c;
     az_list* li;
 
     az_log(LOG_DEBUG, ">>> %s", __func__);
@@ -167,7 +180,7 @@ int
 sc_connection_register_channel(sc_connection* conn, sc_channel* channel)
 {
     int id = 0;
-    sc_channel* last = NULL, *c;
+    sc_channel* c;
     az_list *li;
 
     for (li = conn->channel_list; li; li = li->next) {
@@ -241,7 +254,7 @@ _create_dir(const char* fpath, mode_t mode)
     }
 
     p = s;
-    while (p = strchr(p, '/')) {
+    while ((p = strchr(p, '/'))) {
         *p = '\0';
 	mkdir(s, mode);
 	*p++ = '/';
@@ -254,11 +267,13 @@ _create_dir(const char* fpath, mode_t mode)
 
 
 int
-_do_merge_file(const char* host, const char* path, time_t ts, const char *data, size_t len, sc_aggregate_context* aggr)
+_do_merge_file(const char* host, const char* path, time_t ts, az_buffer_ref buffer, const char *data, size_t len, sc_aggregate_context* aggr)
 {
     int fd, cb0 = 0;
     char tsbuf[32];
     char fullp[PATH_MAX];
+    size_t u;
+    ssize_t n;
 
     __mk_path(g_config_server_logdir, path, fullp, sizeof(fullp));
     az_log(LOG_DEBUG, "merging to ... [%s]", fullp);
@@ -276,22 +291,32 @@ _do_merge_file(const char* host, const char* path, time_t ts, const char *data, 
         perror("");
 	return -1;
     }
-    write(fd, host, strlen(host));
+    n = write(fd, host, strlen(host));
+    // 'n': check here
     if (cb0 > 0) {
-        write(fd, tsbuf, cb0);
+        n = write(fd, tsbuf, cb0);
+        // 'n': check here
     }
-    write(fd, ": ", 2);
-    write(fd, data, len);
+    n = write(fd, ": ", 2);
+    // 'n': check here
+    if ((u = az_buffer_unread_bytes(buffer)) > 0) {
+        n = write(fd, az_buffer_current(buffer), az_buffer_unread_bytes(buffer));
+        // 'n': check here
+        az_buffer_reset(buffer);
+    }
+    n = write(fd, data, len);
+    // 'n': check here
     close(fd);
 
     return 0;
 }
 
 int
-_do_append_file(const char* path, const char *data, size_t len)
+_do_append_file(const char* path, az_buffer_ref buffer, const char *data, size_t len)
 {
-    int fd;
+    int fd, n;
     char dir[PATH_MAX];
+    size_t u;
 
     strcpy(dir, path);
     az_log(LOG_DEBUG, "appending to ... [%s]", path);
@@ -300,10 +325,15 @@ _do_append_file(const char* path, const char *data, size_t len)
 
     fd = open(path, O_APPEND | O_RDWR | O_CREAT, g_config_default_mode);
     if (fd == -1) {
-        perror("");
+        perror("open");
 	return -1;
     }
-    write(fd, data, len);
+    if ((u = az_buffer_unread_bytes(buffer)) > 0) {
+        n = write(fd, az_buffer_current(buffer), az_buffer_unread_bytes(buffer));
+        // 'n': check here
+        az_buffer_reset(buffer);
+    }
+    n = write(fd, data, len);
     close(fd);
 
     return 0;
@@ -371,7 +401,6 @@ handler_dummy(sc_log_message* msg, sc_connection* conn)
 int
 handler_init(sc_log_message* msg, sc_connection* conn)
 {
-    int n;
     int64_t stlen = 0;
     int32_t slen = msg->content_length - sizeof(int32_t);
 
@@ -448,11 +477,19 @@ handler_data(sc_log_message* msg, sc_connection* conn, sc_channel* channel)
     len = msg->content_length - (sizeof(int32_t) + sizeof(time_t));
     az_log(LOG_DEBUG, ">>> attr = %d", attr);
 
-    if (!aggr || aggr->f_merge) {
-        _do_merge_file(conn->remote_addr, channel->filename, t, text, len, aggr);
-    }
-    if (!aggr || aggr->f_separate) {
-        _do_append_file(channel->__filename_fullpath, text, len);
+    if (!(attr & 0x80000000)) {
+        if (az_buffer_unused_bytes(channel->buffer) < len) {
+            az_buffer_resize(channel->buffer, len + az_buffer_size(channel->buffer));
+        }
+        assert(az_buffer_unused_bytes(channel->buffer) >= len);
+        az_buffer_fetch_bytes(channel->buffer, text, len);
+    } else {
+        if (!aggr || aggr->f_merge) {
+            _do_merge_file(conn->remote_addr, channel->filename, t, channel->buffer, text, len, aggr);
+        }
+        if (!aggr || aggr->f_separate) {
+            _do_append_file(channel->__filename_fullpath, channel->buffer, text, len);
+        }
     }
 
     sc_log_message* ok = sc_log_message_new(sizeof(int32_t));
@@ -569,8 +606,6 @@ do_receive(int epfd, sc_connection* conn)
 	    }
         }
     } else if (n == 0) {
-        struct epoll_event ev;
-
         az_log(LOG_DEBUG, "connection closed");
 
 	epoll_ctl(epfd, EPOLL_CTL_DEL, c, NULL);
@@ -579,8 +614,6 @@ do_receive(int epfd, sc_connection* conn)
 
 	sc_connection_destroy(conn);
     } else {
-        struct epoll_event ev;
-
         az_log(LOG_DEBUG, "recvall error.");
 
 	epoll_ctl(epfd, EPOLL_CTL_DEL, c, NULL);
@@ -601,7 +634,6 @@ run_main(int* socks, int num_socks)
     int epfd, i, j;
 
     // char buf[2048];
-    ssize_t n;
     sc_connection *conn = NULL;
 
     int done = 0;
@@ -631,7 +663,6 @@ run_main(int* socks, int num_socks)
 		    struct sockaddr_storage ss;
 		    socklen_t sslen = sizeof(ss);
 		    // j = num_socks;
-		    int err;
 
                     memset(&ss, 0, sizeof(ss));
 		    c = accept(socks[j], (struct sockaddr*)&ss, &sslen);
@@ -667,10 +698,9 @@ main(int argc, char** argv)
 {
     struct addrinfo hints, *res, *res0 = NULL;
     int err;
-    int s[MAX_SOCKETS], nsock, i, c;
+    int s[MAX_SOCKETS], nsock, i;
 
     char *conf = NULL, sport[16];
-    ssize_t cb, n;
 
     int yes = 1, ch;
 
@@ -778,7 +808,9 @@ handler_alarm(int sig, siginfo_t* sinfo, void* ptr)
 int
 set_rotation_timer()
 {
+#if 0
     double secs_left = 0.0L;
+#endif
     struct itimerval itimer = {};
     struct sigaction sa = {
         .sa_sigaction = handler_alarm,

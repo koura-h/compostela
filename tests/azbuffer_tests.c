@@ -4,6 +4,7 @@
 #include <sys/types.h>
 #include <strings.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <fcntl.h>
 
 #include "azbuffer.h"
@@ -14,6 +15,8 @@ void test_azbuffer_2();
 void test_azbuffer_3();
 void test_azbuffer_4();
 void test_azbuffer_5();
+void test_azbuffer_6();
+void test_azbuffer_7();
 
 int
 main(int argc, char** argv)
@@ -27,6 +30,8 @@ main(int argc, char** argv)
     CU_add_test(suite, "test_003", test_azbuffer_3);
     CU_add_test(suite, "test_004", test_azbuffer_4);
     CU_add_test(suite, "test_005", test_azbuffer_5);
+    CU_add_test(suite, "test_006", test_azbuffer_6);
+    CU_add_test(suite, "test_007", test_azbuffer_7);
     CU_console_run_tests();
     CU_cleanup_registry();
     return 0;
@@ -59,7 +64,7 @@ test_azbuffer_2()
 {
     char cb[10];
     size_t n = 0;
-    int ret = 0, err = 0;
+    int err = 0;
 
     az_buffer_ref buf = az_buffer_new(10);
     CU_ASSERT(az_buffer_unused_bytes(buf) == 10);
@@ -96,7 +101,7 @@ test_azbuffer_2()
 void
 test_azbuffer_3()
 {
-    char cb[10], *p;
+    char cb[10];
     int f = open("./test.txt", O_RDONLY);
     CU_ASSERT(f > 0);
 
@@ -180,8 +185,6 @@ test_azbuffer_4()
 void
 test_azbuffer_5()
 {
-    int u = 0;
-
     az_buffer_ref buf = az_buffer_new(10);
     CU_ASSERT(az_buffer_unused_bytes(buf) == 10);
     CU_ASSERT(az_buffer_unread_bytes(buf) == 0);
@@ -197,7 +200,6 @@ test_azbuffer_5()
 void
 test_azbuffer_6()
 {
-    int u = 0, n = 0;
     char cb[16];
 
     az_buffer_ref buf = az_buffer_new(10);
@@ -215,6 +217,20 @@ test_azbuffer_6()
     CU_ASSERT(az_buffer_unused_bytes(buf) == 3);
     CU_ASSERT(az_buffer_unread_bytes(buf) == 7) 
     CU_ASSERT(memcmp(az_buffer_current(buf), "0123bcd", 7) == 0);
+
+    az_buffer_destroy(buf);
+}
+
+void
+test_azbuffer_7()
+{
+    az_buffer_ref buf = az_buffer_new(8);
+    CU_ASSERT(az_buffer_unused_bytes(buf) == 8);
+    CU_ASSERT(az_buffer_unread_bytes(buf) == 0);
+
+    az_buffer_fetch_bytes(buf, "0123456789", 10);
+    CU_ASSERT(az_buffer_unused_bytes(buf) == 18);
+    CU_ASSERT(az_buffer_unread_bytes(buf) == 10);
 
     az_buffer_destroy(buf);
 }
