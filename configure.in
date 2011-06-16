@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.61)
-AC_INIT(compostela, 0.2, [hironobu.k@me.com])
+AC_INIT(compostela, 0.2.1, [koura-h@klab.jp])
 AM_INIT_AUTOMAKE
 AC_CONFIG_SRCDIR([common/azbuffer.c])
 AC_CONFIG_HEADER([config.h])
