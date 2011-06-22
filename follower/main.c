@@ -470,21 +470,24 @@ int
 _do_controller_direct_open_with_line(char* linebuf, size_t size, sc_controller* contr)
 {
     sc_follow_context* cxt = NULL;
-    char *p = linebuf + 5, *px;
+    char *atbl[51], **ap = atbl, *p, *val;
 
-    for (px = p; *px; px++) {
-        if (*px == ' ' || *px == '\n' || *px == '\r') {
-            *px = '\0';
-            break;
-        }
+    for (p = linebuf; p != NULL; ) {
+        while ((val = strsep(&p, " \t")) != NULL && *val == '\0');
+            *ap++ = val;
+    }
+    *ap = 0;
+
+    ap = atbl;
+    while ((*ap)[0] == '-') {
     }
 
-    contr->displayName = strdup(p);
+    contr->displayName = strdup(ap[0]);
     contr->f_direct = 1;
 
     fprintf(stderr, "OPEN: displayName=(%s)\n", p);
 
-    cxt = sc_follow_context_new_with_fd(contr->socket_fd, p, 1, BUFSIZE, g_connection);
+    cxt = sc_follow_context_new(ap[1], ap[0], 1, BUFSIZE, g_connection);
     g_context_list = az_list_add(g_context_list, cxt);
 
     set_non_blocking(contr->socket_fd);
@@ -700,7 +703,7 @@ do_server_socket(int epfd, int* socks, int num_socks)
 
                     contr = sc_controller_new(c);
 
-                    do_receive_0(contr->socket_fd, contr);
+                    do_receive_0(c, contr);
 
 /*
                     ev.events = EPOLLIN | EPOLLET;
@@ -724,6 +727,7 @@ do_server_socket(int epfd, int* socks, int num_socks)
         }
     }
 
+    az_log(LOG_DEBUG, "nfd = %d", nfd);
     return nfd > 0 ? 1 : 0;
 }
 
