@@ -405,6 +405,10 @@ _run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
             // EOF, wait for the new available data.
 	    return 1;
         } else if (ret == -1) {
+            if (errno == EAGAIN) {
+                // treats similar to EOF
+                return 1;
+            }
             return -1;
         }
 
@@ -819,6 +823,7 @@ main(int argc, char** argv)
 	    } else if (ret == -1) {
 	        // error occurred
 	        perror("_run_follow_context");
+                az_log(LOG_DEBUG, "cxt = %p, cxt->_fd = %d, cxt->displayName = %s", cxt, cxt->_fd, cxt->displayName);
 	        // exit(1);
                 g_context_list = az_list_delete(g_context_list, cxt);
                 sc_follow_context_destroy(cxt);

@@ -466,7 +466,9 @@ handler_data(sc_log_message* msg, sc_connection* conn, sc_channel* channel)
     sc_aggregate_context* aggr = channel->aggregate_context;
 
     az_log(LOG_DEBUG, ">>> handler_data (channel_id = %d)", msg->channel);
-    az_log(LOG_DEBUG, ">>> aggr.f_separate = %d, aggr.f_merge = %d", aggr->f_separate, aggr->f_merge);
+    if (aggr) {
+        az_log(LOG_DEBUG, ">>> aggr.f_separate = %d, aggr.f_merge = %d", aggr->f_separate, aggr->f_merge);
+    }
 
     attr = ntohl(*(int32_t*)msg->content);
     t = *(time_t*)(msg->content + sizeof(int32_t));
