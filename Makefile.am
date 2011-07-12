@@ -1,4 +1,4 @@
-SUBDIRS = common aggregator follower
+SUBDIRS = common aggregator follower logger
 
 if ENABLE_TESTS
 SUBDIRS += tests
