@@ -7,6 +7,7 @@ comfollower_SOURCES = main.c \
 	appconfig.c appconfig.h \
 	connection.c connection.h \
 	follow_context.c follow_context.h \
+	../common/runloop.c ../common/runloop.h \
 	../common/message.c ../common/message.h ../common/supports.h ../common/supports.c
 comfollower_LDADD = ../common/libaz.la
 

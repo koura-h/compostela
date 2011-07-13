@@ -1,47 +1,47 @@
-/* $Id$ */
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/time.h>
-#include <sys/epoll.h>
-#include <sys/un.h>
-#include <signal.h>
-#include <errno.h>
-#include <stdio.h>
 #include <stdlib.h>
-#include <stddef.h>
+#include <stdio.h>
+#include <glob.h>
 #include <string.h>
-#include <fcntl.h>
-#include <netdb.h>
-#include <assert.h>
 #include <getopt.h>
-#include <libgen.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/un.h>
+#include <assert.h>
 #include <time.h>
-#include <byteswap.h>
 #include <unistd.h>
+#include <errno.h>
+#include <arpa/inet.h>
+#include <byteswap.h>
+#include <libgen.h>
 
-#include "azlist.h"
 #include "azbuffer.h"
 #include "azlog.h"
+#include "azlist.h"
+#include "supports.h"
+
+#include "runloop.h"
 
 #include "message.h"
 #include "connection.h"
 #include "follow_context.h"
-
 #include "appconfig.h"
-#include "supports.h"
 
 #include "config.h"
 
-/////
 
-static int set_rotation_timer();
-static int do_rotate(sc_aggregator_connection_ref conn);
-
-/////
 
 enum { ERR_MUST_RECONNECT = 1001 };
 
-enum { CONTROLLER_BUFFER_SIZE = 2048 };
+// enum { CONTROLLER_BUFFER_SIZE = 2048 };
+
+enum { BUFSIZE = 8192 };
+
+az_list* g_context_list = NULL;
+
+const char *DEFAULT_CONF = PATH_SYSCONFDIR "/comfollower.conf";
+#define PATH_CONTROL "/tmp/comfollower.sock"
+
+static int do_rotate(sc_aggregator_connection_ref conn);
 
 int
 setup_server_unix_socket(const char* path)
@@ -80,49 +80,374 @@ on_error:
     return -1;
 }
 
-/////
 
-
-typedef struct _sc_controller {
-    int socket_fd;
-    char *displayName;
-    //
-    int f_direct;
-    //
-    az_buffer_ref buffer;
-} sc_controller;
-
-
-sc_controller*
-sc_controller_new(int cc)
+static int
+_sc_follow_context_proc_data(sc_follow_context* cxt, sc_log_message* msg, sc_log_message** ppresp)
 {
-    sc_controller* c = (sc_controller*)malloc(sizeof(sc_controller));
-    if (c) {
-        memset(c, 0, sizeof(sc_controller));
-        c->socket_fd = cc;
-        c->buffer = az_buffer_new(CONTROLLER_BUFFER_SIZE);
+    int ret;
+    *ppresp = NULL;
+
+    if ((ret = sc_aggregator_connection_send_message(cxt->connection, msg)) != 0) {
+        // connection bren
+        az_log(LOG_DEBUG, "DATA: connection has bren.");
+        return ret;
     }
-    return c;
+
+    if ((ret = sc_aggregator_connection_receive_message(cxt->connection, ppresp)) != 0) {
+        az_log(LOG_DEBUG, "DATA: connection has bren. (on receiving) = %d", ret);
+        return ret;
+    }
+
+    return ret;
+}
+
+
+/*
+ * 1) read ok, line completed.
+ * 2) read ok, line not completed. (LF not found)
+ * 3) readable but no data available, wait.
+ * 4) read error.
+ *
+ *
+ */
+int
+_sc_follow_context_read_line(sc_follow_context* cxt, char* dst, size_t dsize, size_t* used)
+{
+    int n, err;
+    char* p = dst;
+
+    *used = 0;
+
+    az_log(LOG_DEBUG, ">>> _sc_follow_context_read_line");
+
+    if (az_buffer_unread_bytes(cxt->buffer) == 0) {
+        az_buffer_reset(cxt->buffer);
+        n = az_buffer_fetch_file(cxt->buffer, cxt->_fd, az_buffer_unused_bytes(cxt->buffer));
+        if (n <= 0) {
+            if (errno == EAGAIN) { // for read()
+                return n;
+            }
+            return n;
+        }
+    }
+
+    err = 0;
+    return az_buffer_read_line(cxt->buffer, p, dst + dsize - p, used, &err);
+#if 0
+    while ((n = az_buffer_read_line(cxt->buffer, p, dst + dsize - p, &u, &err)) != 1) {
+        assert(n == 0); // Now, 'dst/dsize' assumes to have enough space always.
+
+        p += u;
+
+        az_buffer_reset(cxt->buffer);
+        n = az_buffer_fetch_file(cxt->buffer, cxt->_fd, az_buffer_unused_bytes(cxt->buffer));
+        if (n <= 0) {
+            if (errno == EAGAIN) { // for read()
+                n = 0;
+            }
+            m = az_buffer_push_back(cxt->buffer, p, u);
+            az_log(LOG_DEBUG, "cxt = %p (at %s)", cxt, cxt->filename);
+            assert(m == 0);
+            return n;
+        }
+    }
+
+    p += u;
+    *p = '\0';
+    az_log(LOG_DEBUG, "<<< _sc_follow_context_read_line (%s)", dst);
+    return p - dst;
+#endif
+}
+
+
+
+//////////
+
+int
+dump(struct stat *st)
+{
+    char buf[256];
+
+    printf("File type:                ");
+
+    switch (st->st_mode & S_IFMT) {
+        case S_IFBLK:  printf("block device\n");            break;
+        case S_IFCHR:  printf("character device\n");        break;
+        case S_IFDIR:  printf("directory\n");               break;
+        case S_IFIFO:  printf("FIFO/pipe\n");               break;
+        case S_IFLNK:  printf("symlink\n");                 break;
+        case S_IFREG:  printf("regular file\n");            break;
+        case S_IFSOCK: printf("socket\n");                  break;
+        default:       printf("unknown?\n");                break;
+    }
+
+    printf("I-node number:            %ld\n", (long) st->st_ino);
+
+    printf("Mode:                     %lo (octal)\n",
+           (unsigned long) st->st_mode);
+
+    printf("Link count:               %ld\n", (long) st->st_nlink);
+    printf("Ownership:                UID=%ld   GID=%ld\n",
+           (long) st->st_uid, (long) st->st_gid);
+
+    printf("Preferred I/O block size: %ld bytes\n",
+           (long) st->st_blksize);
+    printf("File size:                %lld bytes\n",
+           (long long) st->st_size);
+    printf("Blocks allocated:         %lld\n",
+           (long long) st->st_blocks);
+
+    ctime_r(&(st->st_ctime), buf);
+    printf("Last inode change:        %s", buf);
+    ctime_r(&(st->st_atime), buf);
+    printf("Last file access:         %s", buf);
+    ctime_r(&(st->st_mtime), buf);
+    printf("Last file modification:   %s", buf);
+
+    return 0;
+}
+
+struct __filewatch {
+    char *filename;
+    struct stat st;
+    int __generation;
+};
+
+
+struct __filewatch*
+__find_entry_with_filename(az_list* list, const char* fname)
+{
+    az_list* li;
+    for (li = list; li; li = li->next) {
+        struct __filewatch *wf = (struct __filewatch*)li->object;
+        if (strcmp(fname, wf->filename) == 0) {
+            return wf;
+        }
+    }
+    return NULL;
+}
+
+int
+__eval_filewatch(az_list* list_orig, az_list* list)
+{
+    az_list *li;
+
+    if (!list_orig) {
+        return -1;
+    }
+
+    for (li = list; li; li = li->next) {
+        struct __filewatch *wf, *wf0 = NULL;
+        wf = (struct __filewatch*)li->object;
+        wf0 = __find_entry_with_filename(list_orig, wf->filename);
+        if (wf0) {
+            // modified or not
+            wf0->__generation = 2;
+            if (wf0->st.st_mtime != wf->st.st_mtime) {
+                // modified
+                wf->__generation = 3;
+            } else {
+                // not modified
+                wf->__generation = 1;
+            }
+        } else {
+            // added
+            wf->__generation = 0;
+        }
+    }
+
+    return 0;
+}
+
+int
+__diff_filewatch(az_list* list_orig, az_list* list, struct __run_loop* cxt)
+{
+    az_list* li;
+    struct __run_loop_task* t;
+
+    for (li = list_orig; li; li = li->next) {
+        struct __filewatch* wf = (struct __filewatch*)li->object;
+        if (wf->__generation != 2) {
+            t = __run_loop_task_new();
+            t->type = TASK_FILE_DELETED;
+            t->object = wf;
+            cxt->tasks = az_list_add(cxt->tasks, t);
+        }
+    }
+
+    for (li = list; li; li = li->next) {
+        struct __filewatch* wf = (struct __filewatch*)li->object;
+        if (wf->__generation == 0) {
+            t = __run_loop_task_new();
+            t->type = TASK_FILE_ADDED;
+            t->object = wf;
+            cxt->tasks = az_list_add(cxt->tasks, t);
+        } else if (wf->__generation == 1) {
+            // printf("NOT MODIFIED: %s\n", wf->filename);
+        } else if (wf->__generation == 3) {
+            t = __run_loop_task_new();
+            t->type = TASK_FILE_MODIFIED;
+            t->object = wf;
+            cxt->tasks = az_list_add(cxt->tasks, t);
+        }
+    }
+
+    return 0;
+}
+
+int
+__setup_control_path(const char* path)
+{
+    int ss;
+    struct sockaddr_un sun;
+
+    ss = socket(PF_UNIX, SOCK_STREAM, 0);
+    if (ss == -1) {
+        perror("socket");
+        return -1;
+    }
+
+    if (set_non_blocking(ss) == -1) {
+        return -1;
+    }
+
+    memset(&sun, 0, sizeof(sun));
+    sun.sun_family = PF_UNIX;
+    strcpy(sun.sun_path, path);
+    unlink(path);
+
+    if (bind(ss, (struct sockaddr*)&sun, sizeof(sun)) != 0) {
+        perror("bind");
+        goto on_error;
+    }
+    if (listen(ss, 5) != 0) {
+        perror("listen");
+        goto on_error;
+    }
+
+    return ss;
+
+on_error:
+    close(ss);
+    return -1;
 }
 
 void
-sc_controller_destroy(sc_controller* c)
+showdir(az_list* wflist)
 {
-    az_buffer_destroy(c->buffer);
-    assert(c->socket_fd == -1);
-    free(c);
+    az_list *li;
+    for (li = wflist; li; li = li->next) {
+        struct __filewatch *wf = (struct __filewatch*)li->object;
+        printf(">>> %s\n", wf->filename);
+    }
 }
 
-az_list* g_controller_list = NULL;
+void
+__filewatch_destroy(az_list* wflist)
+{
+    az_list *li;
+    for (li = wflist; li; li = li->next) {
+        struct __filewatch *wf = (struct __filewatch*)li->object;
+        free(wf->filename);
+        free(wf);
+    }
 
-/////
+    az_list_delete_all(wflist);
+}
+
+az_list*
+__make_filewatch_with_glob(const char* path)
+{
+    az_list* files = NULL;
+
+    glob_t globbuf;
+    int i;
+
+    glob(path, 0, NULL, &globbuf);
+
+    for (i = 0; i < globbuf.gl_pathc; i++) {
+        struct __filewatch *wf = malloc(sizeof(struct __filewatch));
+        memset(wf, 0, sizeof(struct __filewatch));
+
+        wf->filename = strdup(globbuf.gl_pathv[i]);
+        stat(wf->filename, &(wf->st));
+
+        files = az_list_add(files, wf);
+    }
+    globfree(&globbuf);
+
+    return files;
+}
+
+int
+__exec_tasks(struct __run_loop* cxt)
+{
+    az_list* li;
+
+    for (li = cxt->tasks; li; li = li->next) {
+        struct __run_loop_task* t = (struct __run_loop_task*)li->object;
+        struct __filewatch* wf = (struct __filewatch*)t->object;
+        switch (t->type) {
+            case TASK_FILE_ADDED:
+                printf("ADDED: %s\n", wf->filename);
+                break;
+            case TASK_FILE_MODIFIED:
+                printf("MODIFIED: %s\n", wf->filename);
+                break;
+            case TASK_FILE_DELETED:
+                printf("DELETED: %s\n", wf->filename);
+                break;
+        }
+    }
+
+    return 0;
+}
 
 
-enum { BUFSIZE = 8192 };
 
-/////
+int
+__do_receive_1(const char* line, struct __connection* conn, struct __run_loop *loop)
+{
+    az_log(LOG_DEBUG, "line = [%s]", line);
+    return 0;
+}
 
-static sc_aggregator_connection_ref g_connection = NULL;
+int
+__do_receive(struct __connection* conn, struct __run_loop* loop)
+{
+    char buf[1024];
+    size_t used;
+    int err, ret, n = 1; // dummy
+
+    az_log(LOG_DEBUG, "__do_receive");
+
+    while (n > 0) {
+        while ((ret = az_buffer_read_line(conn->buffer, buf, sizeof(buf), &used, &err)) != 1) {
+            n = az_buffer_fetch_file(conn->buffer, conn->fd, 1024);
+            if (n == -1) {
+                if (errno == EAGAIN) {
+                    az_buffer_push_back(conn->buffer, buf, used);
+                    return 0; // continue.
+                } else {
+                    buf[used] = '\0';
+                    __do_receive_1(buf, conn, loop);
+                    return -1; // error, stop.
+                }
+            } else if (n == 0) {
+                buf[used] = '\0';
+                __do_receive_1(buf, conn, loop);
+                return -1; // EOF
+            }
+            az_log(LOG_DEBUG, "n = %d\n", n);
+        }
+
+        buf[used] = '\0';
+        __do_receive_1(buf, conn, loop);
+    }
+
+    return -1;
+}
+
 static int g_conn_controller = -1;
 
 /////
@@ -205,168 +530,7 @@ _init_file(sc_follow_context *cxt)
     return 0;
 }
 
-#if 0
-static int
-_sync_file(sc_follow_context *cxt)
-{
-    sc_log_message *msg, *resp;
-    // size_t n = strlen(cxt->displayName);
-    int64_t pos = 0;
 
-    size_t size;
-    unsigned char* p;    
-
-    az_log(LOG_DEBUG, ">>> SYNC: started");
-
-    mhash_with_size(cxt->filename, cxt->position, &p, &size);
-
-    msg = sc_log_message_new(size);
-    if (!msg) {
-        return -1;
-    }
-
-    msg->code    = SCM_MSG_SYNC;
-    msg->channel = cxt->channel;
-
-    memcpy(msg->content, p, size);
-    free(p);
-
-    // send_message
-    if (sc_aggregator_connection_send_message(cxt->connection, msg) != 0) {
-        az_log(LOG_DEBUG, "SYNC: connection has bren.");
-        return -1;
-    }
-
-    if (sc_aggregator_connection_receive_message(cxt->connection, &resp) != 0) {
-        az_log(LOG_DEBUG, "SYNC: connection has bren. (on receiving)");
-        return -3;
-    }
-
-    pos = *(int64_t*)(&resp->content);
-#if __BYTE_ORDER == __LITTLE_ENDIAN
-    pos = bswap_64(pos);
-#endif
-
-    if (resp->code != SCM_RESP_OK) {
-        az_log(LOG_DEBUG, ">>> SYNC: failed (code=%d)", resp->code);
-        cxt->position = pos;
-    }
-    az_log(LOG_DEBUG, "SYNC: cxt->position = %d", cxt->position);
-    lseek(cxt->_fd, cxt->position, SEEK_SET);
-
-    az_log(LOG_DEBUG, ">>> SYNC: finished");
-    return 0;
-}
-#endif
-
-static int
-_sc_follow_context_proc_data(sc_follow_context* cxt, sc_log_message* msg, sc_log_message** ppresp)
-{
-    int ret;
-    *ppresp = NULL;
-
-    if ((ret = sc_aggregator_connection_send_message(cxt->connection, msg)) != 0) {
-	// connection bren
-	az_log(LOG_DEBUG, "DATA: connection has bren.");
-	return ret;
-    }
-
-    if ((ret = sc_aggregator_connection_receive_message(cxt->connection, ppresp)) != 0) {
-	az_log(LOG_DEBUG, "DATA: connection has bren. (on receiving) = %d", ret);
-	return ret;
-    }
-
-    return ret;
-}
-
-#if 0
-static int
-_sc_follow_context_proc_rele(sc_follow_context* cxt, sc_log_message* msg, sc_log_message** ppresp)
-{
-    int ret = 0;
-    *ppresp = NULL;
-
-    if ((ret = sc_aggregator_connection_send_message(cxt->connection, msg)) != 0) {
-	// connection bren
-	az_log(LOG_DEBUG, "RELE: connection has bren.");
-	return ret;
-    }
-
-    if ((ret = sc_aggregator_connection_receive_message(cxt->connection, ppresp)) != 0) {
-	az_log(LOG_DEBUG, "RELE: connection has bren. (on receiving) = %d", ret);
-	// reconnect
-	return ret;
-    }
-
-    return ret;
-}
-#endif
-
-
-/*
- * 1) read ok, line completed.
- * 2) read ok, line not completed. (LF not found)
- * 3) readable but no data available, wait.
- * 4) read error.
- *
- *
- */
-int
-_sc_follow_context_read_line(sc_follow_context* cxt, char* dst, size_t dsize, size_t* used)
-{
-    int n, err;
-    char* p = dst;
-
-    *used = 0;
-
-    az_log(LOG_DEBUG, ">>> _sc_follow_context_read_line");
-
-    if (az_buffer_unread_bytes(cxt->buffer) == 0) {
-        az_buffer_reset(cxt->buffer);
-        n = az_buffer_fetch_file(cxt->buffer, cxt->_fd, az_buffer_unused_bytes(cxt->buffer));
-	if (n <= 0) {
-            if (errno == EAGAIN) { // for read()
-                return n;
-            }
-	    return n;
-	}
-    }
-
-    err = 0;
-    return az_buffer_read_line(cxt->buffer, p, dst + dsize - p, used, &err);
-#if 0
-    while ((n = az_buffer_read_line(cxt->buffer, p, dst + dsize - p, &u, &err)) != 1) {
-        assert(n == 0); // Now, 'dst/dsize' assumes to have enough space always.
-
-	p += u;
-
-        az_buffer_reset(cxt->buffer);
-	n = az_buffer_fetch_file(cxt->buffer, cxt->_fd, az_buffer_unused_bytes(cxt->buffer));
-	if (n <= 0) {
-            if (errno == EAGAIN) { // for read()
-                n = 0;
-            }
-	    m = az_buffer_push_back(cxt->buffer, p, u);
-	    az_log(LOG_DEBUG, "cxt = %p (at %s)", cxt, cxt->filename);
-	    assert(m == 0);
-	    return n;
-	}
-    }
-
-    p += u;
-    *p = '\0';
-    az_log(LOG_DEBUG, "<<< _sc_follow_context_read_line (%s)", dst);
-    return p - dst;
-#endif
-}
-
-/**
- *
- * returns: >0 ... no data processed, or connection to aggregator is down.
- *                 retry later.
- *          =0 ... data processed, and sent to aggregator. everything's good.
- *          <0 ... error occurred.
- */
 static int
 _run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
 {
@@ -384,8 +548,8 @@ _run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
     az_log(LOG_DEBUG, "context run");
     if (!sc_aggregator_connection_is_opened(cxt->connection)) {
         // disconnected. but show must go on.
-	az_log(LOG_DEBUG, ">>> %s: PLEASE RECONNECT NOW!", __FUNCTION__);
-	return ERR_MUST_RECONNECT;
+        az_log(LOG_DEBUG, ">>> %s: PLEASE RECONNECT NOW!", __FUNCTION__);
+        return ERR_MUST_RECONNECT;
     }
 
     if (msgbuf->code == SCM_MSG_NONE) {
@@ -403,7 +567,7 @@ _run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
         ret = _sc_follow_context_read_line(cxt, msgbuf->content + cb0, BUFSIZE - cb0, &cb);
         if (ret == 0 && cb == 0) {
             // EOF, wait for the new available data.
-	    return 1;
+            return 1;
         } else if (ret == -1) {
             if (errno == EAGAIN) {
                 // treats similar to EOF
@@ -434,308 +598,23 @@ _run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
     }
 
     if (_sc_follow_context_proc_data(cxt, msgbuf, presp) != 0) {
-	// should reconnect
-	az_log(LOG_DEBUG, "You should reconnect now");
-	return ERR_MUST_RECONNECT;
+        // should reconnect
+        az_log(LOG_DEBUG, "You should reconnect now");
+        return ERR_MUST_RECONNECT;
     }
 
     if ((*presp)->code == SCM_RESP_OK) {
         // cxt->current_position = cur;
-	msgbuf->code = SCM_MSG_NONE;
+        msgbuf->code = SCM_MSG_NONE;
     }
 
     return 0;
 }
 
-az_list* g_context_list = NULL;
 
-const char *DEFAULT_CONF = PATH_SYSCONFDIR "/comfollower.conf";
-#define PATH_CONTROL "/tmp/comfollower.sock"
-
-double
-get_seconds_left_in_today()
-{
-    struct tm tm0, tm1;
-    time_t t, t1;
-
-    time(&t);
-    localtime_r(&t, &tm0);
-    t1 = t + 86400;
-    localtime_r(&t1, &tm1);
-    tm1.tm_hour = tm1.tm_min = tm1.tm_sec = 0;
-    t1 = mktime(&tm1);
-
-    return difftime(t1, t);
-}
-
-/////
-
-int
-_do_controller_direct_open_with_line(char* linebuf, size_t size, sc_controller* contr)
-{
-    sc_follow_context* cxt = NULL;
-    char *atbl[51], **ap = atbl, *p, *val;
-
-    for (p = linebuf; p != NULL; ) {
-        while ((val = strsep(&p, " \t")) != NULL && *val == '\0');
-            *ap++ = val;
-    }
-    *ap = 0;
-
-    ap = atbl;
-    while ((*ap)[0] == '-') {
-    }
-
-    contr->displayName = strdup(ap[0]);
-    contr->f_direct = 1;
-
-    fprintf(stderr, "OPEN: displayName=(%s)\n", p);
-
-    cxt = sc_follow_context_new(ap[1], ap[0], 1, BUFSIZE, g_connection);
-    g_context_list = az_list_add(g_context_list, cxt);
-
-    set_non_blocking(contr->socket_fd);
-
-    return 0;
-}
-
-int
-_do_receive_data_0(int c, const void *data, size_t dlen, void* info)
-{
-    sc_controller* contr = (sc_controller*)info;
-    char line[CONTROLLER_BUFFER_SIZE];
-    size_t u;
-    int n, ret = 0, err = 0;
-
-    az_log(LOG_DEBUG, "data = %p, dlen = %d", data, dlen);
-
-    if (az_buffer_unread_bytes(contr->buffer) == 0) {
-        az_buffer_reset(contr->buffer);
-    }
-    if (az_buffer_unused_bytes(contr->buffer) < dlen) {
-        az_buffer_resize(contr->buffer, dlen + az_buffer_size(contr->buffer));
-    }
-    assert(az_buffer_unused_bytes(contr->buffer) >= dlen);
-    n = az_buffer_fetch_bytes(contr->buffer, data, dlen);
-
-    while ((n = az_buffer_read_line(contr->buffer, line, sizeof(line), &u, &err)) > 0) {
-        line[u] = '\0';
-
-        az_log(LOG_DEBUG, "line = [%s]", line);
-        if (strncmp(line, "OPEN ", 5) == 0) {
-            _do_controller_direct_open_with_line(line, sizeof(line), contr);
-
-            send(c, "OK\r\n", 4, 0);
-            ret = 1;
-        }
-    }
-
-    return ret;
-}
-int
-_do_receive_data(int c, const void *data, size_t dlen, void* info)
-{
-    sc_controller* contr = (sc_controller*)info;
-    char line[CONTROLLER_BUFFER_SIZE];
-    size_t u;
-    int n, ret = 0, err = 0;
-
-    az_log(LOG_DEBUG, "data = %p, dlen = %d", data, dlen);
-
-    if (az_buffer_unread_bytes(contr->buffer) == 0) {
-        az_buffer_reset(contr->buffer);
-    }
-    if (az_buffer_unused_bytes(contr->buffer) < dlen) {
-        az_buffer_resize(contr->buffer, dlen + az_buffer_size(contr->buffer));
-    }
-    assert(az_buffer_unused_bytes(contr->buffer) >= dlen);
-    n = az_buffer_fetch_bytes(contr->buffer, data, dlen);
-
-    while ((n = az_buffer_read_line(contr->buffer, line, sizeof(line), &u, &err)) > 0) {
-        line[u] = '\0';
-
-        if (contr->f_direct) {
-            fprintf(stdout, "direct: [%s]\n", line);
-        } else {
-            az_log(LOG_DEBUG, "line = [%s]", line);
-            if (strncmp(line, "OPEN ", 5) == 0) {
-                _do_controller_direct_open_with_line(line, sizeof(line), contr);
-
-                send(c, "OK\r\n", 4, 0);
-                ret = 1;
-            }
-        }
-    }
-
-    return ret;
-}
-
-enum { MAX_EVENTS = 16 };
-
-int
-do_receive_0(int c, void* info)
-{
-    sc_controller* contr = (sc_controller*)info;
-    ssize_t n;
-
-    az_log(LOG_DEBUG, ">>> do_receive_0");
-
-    unsigned char* databuf = (unsigned char*)malloc(BUFSIZE);
-    
-    n = recv(c, databuf, BUFSIZE, 0);
-    if (n > 0) {
-        if (_do_receive_data_0(c, databuf, n, contr) != 0) {
-            // close(c);
-        }
-    } else if (n == 0) {
-        az_log(LOG_DEBUG, "connection closed");
-        close(c);
-    } else {
-        az_log(LOG_DEBUG, "recvall error.");
-        close(c);
-    }
-
-    az_log(LOG_DEBUG, "<<< do_receive_0");
-
-    free(databuf);
-    return 0;
-}
-
-int
-do_receive(int epfd, int c, void* info)
-{
-    sc_controller* contr = (sc_controller*)info;
-    ssize_t n;
-
-    az_log(LOG_DEBUG, ">>> do_receive");
-
-    unsigned char* databuf = (unsigned char*)malloc(BUFSIZE);
-    
-    n = recv(c, databuf, BUFSIZE, 0);
-    if (n > 0) {
-        if (_do_receive_data(c, databuf, n, contr) != 0) {
-            epoll_ctl(epfd, EPOLL_CTL_DEL, c, NULL);
-            close(c);
-
-            contr->socket_fd = -1;
-            sc_controller_destroy(contr);
-        }
-    } else if (n == 0) {
-        az_log(LOG_DEBUG, "connection closed");
-
-        epoll_ctl(epfd, EPOLL_CTL_DEL, c, NULL);
-
-        close(c);
-
-        contr->socket_fd = -1;
-        sc_controller_destroy(contr);
-    } else {
-        az_log(LOG_DEBUG, "recvall error.");
-
-        epoll_ctl(epfd, EPOLL_CTL_DEL, c, NULL);
-
-        close(c);
-
-        contr->socket_fd = -1;
-        sc_controller_destroy(contr);
-    }
-
-    az_log(LOG_DEBUG, "<<< do_receive");
-
-    free(databuf);
-    return 0;
-}
+static sc_aggregator_connection_ref g_connection = NULL;
 
 
-int
-setup_epoll(int* socks, int num_socks)
-{
-    int epfd, i;
-    struct epoll_event ev;
-
-    if ((epfd = epoll_create(MAX_EVENTS)) < 0) {
-        az_log(LOG_DEBUG, "epoll_create error");
-        return -1;
-    }
-
-    for (i = 0; i < num_socks; i++) {
-        memset(&ev, 0, sizeof(ev));
-        ev.events = EPOLLIN;
-        ev.data.fd = socks[i];
-        epoll_ctl(epfd, EPOLL_CTL_ADD, socks[i], &ev);
-    }
-
-    return epfd;
-}
-
-// run_main(int* socks, int num_socks)
-int
-do_server_socket(int epfd, int* socks, int num_socks)
-{
-    struct epoll_event events[MAX_EVENTS];
-    int i, j;
-
-    //ssize_t n;
-    sc_controller* contr = NULL;
-
-    int nfd;
-    int done = 0;
-
-    // for (;;) {
-    {
-        int c = -1;
-
-        nfd = epoll_wait(epfd, events, MAX_EVENTS, 0);
-        for (i = 0; i < nfd; i++) {
-            done = 0;
-            for (j = 0; j < num_socks; j++) {
-                if (events[i].data.fd == socks[j]) {
-                    struct sockaddr_storage ss;
-                    socklen_t sslen = sizeof(ss);
-
-                    memset(&ss, 0, sizeof(ss));
-                    c = accept(socks[j], (struct sockaddr*)&ss, &sslen);
-                    if (c < 0) {
-                        if (errno == EAGAIN) {
-                            continue;
-                        } else {
-                            perror("accept");
-                        }
-                    }
-
-                    az_log(LOG_DEBUG, "accepted");
-
-                    contr = sc_controller_new(c);
-
-                    do_receive_0(c, contr);
-
-/*
-                    ev.events = EPOLLIN | EPOLLET;
-                    ev.data.ptr = contr;
-                    if (epoll_ctl(epfd, EPOLL_CTL_ADD, c, &ev) < 0) {
-                        az_log(LOG_DEBUG, "epoll set insertion error: fd = %d", c);
-                        continue;
-                    }
-                    done = 1;
-*/
-                    break;
-                }
-            }
-
-/*
-            if (!done) {
-                contr = events[i].data.ptr;
-                do_receive(epfd, contr->socket_fd, contr);
-            }
-*/
-        }
-    }
-
-    az_log(LOG_DEBUG, "nfd = %d", nfd);
-    return nfd > 0 ? 1 : 0;
-}
-
-/////
 
 void
 usage()
@@ -746,9 +625,14 @@ usage()
 int
 main(int argc, char** argv)
 {
+    struct __run_loop *loop;
+#if USE_GLOB
+    az_list *wfiles = NULL, *wfiles0 = NULL;
+#endif
+
     sc_follow_context *cxt = NULL;
 
-    int ret, ch, epfd;
+    int ret, ch;
     sc_log_message *resp;
     char *conf = NULL;
 
@@ -761,9 +645,9 @@ main(int argc, char** argv)
 
     while ((ch = getopt_long(argc, argv, "c:p:s:h", long_opts, NULL)) != -1) {
         switch (ch) {
-	case 'c':
-	    conf = strdup(optarg);
-	    break;
+        case 'c':
+            conf = strdup(optarg);
+            break;
         case 'p':
             g_config_server_port = strtoul(optarg, NULL, 10);
             break;
@@ -798,108 +682,77 @@ main(int argc, char** argv)
 #endif
 
     do_rotate(g_connection);
-    set_rotation_timer();
     set_sigpipe_handler();
 
-    epfd = setup_epoll(&g_conn_controller, 1);
+    loop = __run_loop_new(1);
+    __run_loop_register_server_socket(loop, &g_conn_controller, 1);
+
+    // wfiles0 = __make_filewatch_with_glob(argv[2]);
 
     while (1) {
+        assert(loop->tasks == NULL);
+
+#if USE_GLOB
+        wfiles = __make_filewatch_with_glob(argv[2]);
+        __eval_filewatch(wfiles0, wfiles);
+        __diff_filewatch(wfiles0, wfiles, cxt);
+#else
+        do_rotate(g_connection);
+#endif
+        __run_loop_wait(loop, 1000, __do_receive);
+
+        // execution
+        __exec_tasks(loop);
+
+        // for next step
+        __run_loop_flush(loop);
+       
+#if USE_GLOB
+        __filewatch_destroy(wfiles0);
+
+        wfiles0 = wfiles;
+        wfiles = NULL;
+#else
         az_list* li;
-	int sl = 1, rc = 0;
+        int sl = 1, rc = 0;
         cxt = NULL;
 
-        if (do_server_socket(epfd, &g_conn_controller, 1) > 0) {
-            sl = 0;
-        }
-
-	for (li = g_context_list; li; li = li->next) {
+        for (li = g_context_list; li; li = li->next) {
             resp = NULL;
             cxt = li->object;
             ret = _run_follow_context(cxt, &resp);
-	    if (ret > 0) {
-	        if (ret == ERR_MUST_RECONNECT) {
-		    rc = 1;
-		}
-	    } else if (ret == -1) {
-	        // error occurred
-	        perror("_run_follow_context");
+            if (ret > 0) {
+                if (ret == ERR_MUST_RECONNECT) {
+                    rc = 1;
+                }
+            } else if (ret == -1) {
+                // error occurred
+                perror("_run_follow_context");
                 az_log(LOG_DEBUG, "cxt = %p, cxt->_fd = %d, cxt->displayName = %s", cxt, cxt->_fd, cxt->displayName);
-	        // exit(1);
+                // exit(1);
                 g_context_list = az_list_delete(g_context_list, cxt);
                 sc_follow_context_destroy(cxt);
-	    } else {
-	        // in proceessed any bytes.
-	        sl = 0;
-	    }
+            } else {
+                // in proceessed any bytes.
+                sl = 0;
+            }
 
             // here, we proceed response from aggregator
             sc_log_message_destroy(resp);
-	}
+        }
 
-	if (rc) {
-	    for (li = g_context_list; li; li = li->next) {
+        if (rc) {
+            for (li = g_context_list; li; li = li->next) {
                 cxt = li->object;
                 // haha
                 sc_follow_context_reset(cxt);
             }
-	    sc_aggregator_connection_open(g_connection);
-	}
-
-	if (sl > 0) {
-	    sleep(sl);
-	    continue;
-	}
+            sc_aggregator_connection_open(g_connection);
+        }
+#endif
     }
 }
 
-void
-handler_alarm(int sig, siginfo_t* sinfo, void* ptr)
-{
-    struct itimerval itimer = {};
-    az_log(LOG_DEBUG, ">>> %s: BEGIN", __FUNCTION__);
-
-    do_rotate(g_connection);
-
-#if 0
-    itimer.it_interval.tv_sec = 86400;
-#else
-    itimer.it_interval.tv_sec = 1;
-#endif
-    itimer.it_interval.tv_usec = 0;
-    itimer.it_value = itimer.it_interval;
-    assert(setitimer(ITIMER_REAL, &itimer, 0) == 0);
-
-    az_log(LOG_DEBUG, ">>> %s: END", __FUNCTION__);
-}
-
-int
-set_rotation_timer()
-{
-#if 0
-    double secs_left = 0.0L;
-#endif
-    struct itimerval itimer = {};
-    struct sigaction sa = {
-        .sa_sigaction = handler_alarm,
-        .sa_flags = SA_RESTART | SA_SIGINFO,
-    };
-    sigemptyset(&sa.sa_mask);
-    sigaction(SIGALRM, &sa, NULL);
-
-#if 0
-    secs_left = get_seconds_left_in_today();
-    az_log(LOG_DEBUG, "secs_left = %lf", secs_left);
-
-    itimer.it_interval.tv_sec = secs_left;
-#else
-    itimer.it_interval.tv_sec = 1;
-#endif
-    itimer.it_interval.tv_usec = 0;
-    itimer.it_value = itimer.it_interval;
-    assert(setitimer(ITIMER_REAL, &itimer, 0) == 0);
-
-    return 0;
-}
 
 int
 do_rotate(sc_aggregator_connection_ref conn)
@@ -918,33 +771,33 @@ do_rotate(sc_aggregator_connection_ref conn)
         char fn[PATH_MAX], dn[PATH_MAX];
 
         if (pe->rotate && strchr(pe->path, '%')) {
-	    strftime(fn, sizeof(fn), pe->path, &tm);
-	} else {
-	    strncpy(fn, pe->path, sizeof(fn));
-	}
+            strftime(fn, sizeof(fn), pe->path, &tm);
+        } else {
+            strncpy(fn, pe->path, sizeof(fn));
+        }
 
-	if (pe->displayName) {
-	    if (pe->rotate && strchr(pe->displayName, '%')) {
-	        strftime(dn, sizeof(dn), pe->displayName, &tm);
-	    } else {
-	        strncpy(dn, pe->displayName, sizeof(dn));
-	    }
-	} else {
-	    strcpy(dn, basename(fn));
-	}
+        if (pe->displayName) {
+            if (pe->rotate && strchr(pe->displayName, '%')) {
+                strftime(dn, sizeof(dn), pe->displayName, &tm);
+            } else {
+                strncpy(dn, pe->displayName, sizeof(dn));
+            }
+        } else {
+            strcpy(dn, basename(fn));
+        }
         az_log(LOG_DEBUG, "fname = [%s] / dispname = [%s]", fn, dn);
 
         not_found = 1;
         for (li = g_context_list; not_found && li; li = li->next) {
             cxt = li->object;
             if (cxt->filename && strcmp(cxt->filename, fn) == 0) {
-		if (strcmp(cxt->displayName, dn) == 0) {
+                if (strcmp(cxt->displayName, dn) == 0) {
                     // , I'm already following it.
                     not_found = 0;
-		} else {
-		    // displayName has rotated.
-		    sc_follow_context_close(cxt);
-		}
+                } else {
+                    // displayName has rotated.
+                    sc_follow_context_close(cxt);
+                }
                 az_log(LOG_DEBUG, "=== already following now.", fn, dn);
                 break;
             }
@@ -957,39 +810,5 @@ do_rotate(sc_aggregator_connection_ref conn)
         }
     }
 
-#if 0
-    for (li = g_controller_list; li; li = li->next) {
-        char dn[PATH_MAX];
-        sc_controller* contr = li->object;
-
-        if (contr->displayName == NULL) {
-            continue;
-        }
-
-        if (strchr(contr->displayName, '%')) {
-	    strftime(dn, sizeof(dn), contr->displayName, &tm);
-        } else {
-            strncpy(dn, contr->displayName, sizeof(dn));
-        }
-
-        not_found = 1;
-        for (lj = g_context_list; not_found && lj; lj = lj->next) {
-            cxt = lj->object;
-            if (cxt->_fd == contr->socket_fd) {
-                if (strcmp(cxt->displayName, dn) == 0) {
-                    not_found = 0;
-                } else {
-                    sc_follow_context_close(cxt);
-                }
-            }
-        }
-
-        if (not_found) {
-            cxt = sc_follow_context_new_with_fd(contr->socket_fd, dn, 1, BUFSIZE, conn);
-            g_context_list = az_list_add(g_context_list, cxt);
-            az_log(LOG_DEBUG, "added: new follow_context => displayName: %s", dn);
-        }
-    }
-#endif
     return 0;
 }
