@@ -16,7 +16,7 @@
 #include "supports.h"
 
 
-#include "run_loop.h"
+#include "runloop.h"
 
 int
 dump(struct stat *st)
@@ -115,7 +115,7 @@ __eval_filewatch(az_list* list_orig, az_list* list)
 }
 
 int
-__diff_filewatch(az_list* list_orig, az_list* list, struct __run_loop_context* cxt)
+__diff_filewatch(az_list* list_orig, az_list* list, struct __run_loop* cxt)
 {
     az_list* li;
     struct __run_loop_task* t;
@@ -124,7 +124,7 @@ __diff_filewatch(az_list* list_orig, az_list* list, struct __run_loop_context* c
         struct __filewatch* wf = (struct __filewatch*)li->object;
         if (wf->__generation != 2) {
             t = __run_loop_task_new();
-            t->class = TASK_FILE_DELETED;
+            t->type = TASK_FILE_DELETED;
             t->object = wf;
             cxt->tasks = az_list_add(cxt->tasks, t);
         }
@@ -134,14 +134,14 @@ __diff_filewatch(az_list* list_orig, az_list* list, struct __run_loop_context* c
         struct __filewatch* wf = (struct __filewatch*)li->object;
         if (wf->__generation == 0) {
             t = __run_loop_task_new();
-            t->class = TASK_FILE_ADDED;
+            t->type = TASK_FILE_ADDED;
             t->object = wf;
             cxt->tasks = az_list_add(cxt->tasks, t);
         } else if (wf->__generation == 1) {
             // printf("NOT MODIFIED: %s\n", wf->filename);
         } else if (wf->__generation == 3) {
             t = __run_loop_task_new();
-            t->class = TASK_FILE_MODIFIED;
+            t->type = TASK_FILE_MODIFIED;
             t->object = wf;
             cxt->tasks = az_list_add(cxt->tasks, t);
         }
@@ -235,14 +235,14 @@ __make_filewatch_with_glob(const char* path)
 }
 
 int
-__exec_tasks(struct __run_loop_context* cxt)
+__exec_tasks(struct __run_loop* cxt)
 {
     az_list* li;
 
     for (li = cxt->tasks; li; li = li->next) {
         struct __run_loop_task* t = (struct __run_loop_task*)li->object;
         struct __filewatch* wf = (struct __filewatch*)t->object;
-        switch (t->class) {
+        switch (t->type) {
             case TASK_FILE_ADDED:
                 printf("ADDED: %s\n", wf->filename);
                 break;
@@ -258,16 +258,62 @@ __exec_tasks(struct __run_loop_context* cxt)
     return 0;
 }
 
+
+
+int
+__do_receive_1(const char* line, struct __connection* conn, struct __run_loop *loop)
+{
+    az_log(LOG_DEBUG, "line = [%s]", line);
+    return 0;
+}
+
+int
+__do_receive(struct __connection* conn, struct __run_loop* loop)
+{
+    char buf[1024];
+    size_t used;
+    int err, ret, n = 1; // dummy
+
+    az_log(LOG_DEBUG, "__do_receive");
+
+    while (n > 0) {
+        while ((ret = az_buffer_read_line(conn->buffer, buf, sizeof(buf), &used, &err)) != 1) {
+            n = az_buffer_fetch_file(conn->buffer, conn->fd, 1024);
+            if (n == -1) {
+                if (errno == EAGAIN) {
+                    az_buffer_push_back(conn->buffer, buf, used);
+                    return 0; // continue.
+                } else {
+                    buf[used] = '\0';
+                    __do_receive_1(buf, conn, loop);
+                    return -1; // error, stop.
+                }
+            } else if (n == 0) {
+                buf[used] = '\0';
+                __do_receive_1(buf, conn, loop);
+                return -1; // EOF
+            }
+            az_log(LOG_DEBUG, "n = %d\n", n);
+        }
+
+        buf[used] = '\0';
+        __do_receive_1(buf, conn, loop);
+    }
+
+    return -1;
+}
+
+
 int
 main(int argc, char** argv)
 {
-    struct __run_loop_context *cxt;
+    struct __run_loop *cxt;
     az_list *wfiles = NULL, *wfiles0 = NULL;
     int ss;
 
-    cxt = __run_loop_context_new(1);
+    cxt = __run_loop_new(1);
     ss = __setup_control_path(argv[1]);
-    __run_loop_context_register_server_socket(cxt, &ss, 1);
+    __run_loop_register_server_socket(cxt, &ss, 1);
 
     // wfiles0 = __make_filewatch_with_glob(argv[2]);
 
@@ -278,13 +324,13 @@ main(int argc, char** argv)
         __eval_filewatch(wfiles0, wfiles);
         __diff_filewatch(wfiles0, wfiles, cxt);
 
-        __run_loop_context_wait(cxt, 1000);
+        __run_loop_wait(cxt, 1000, __do_receive);
 
         // execution
         __exec_tasks(cxt);
 
         // for next step
-        __run_loop_context_flush(cxt);
+        __run_loop_flush(cxt);
        
         __filewatch_destroy(wfiles0);
 
