@@ -49,6 +49,8 @@ typedef struct _sc_channel {
     char *filename;
     char *__filename_fullpath;
     //
+    time_t timestamp;
+    //
     az_buffer_ref buffer;
     //
     struct _sc_connection* connection;
@@ -95,6 +97,7 @@ sc_channel_new(const char* fname, sc_connection* conn)
             channel->buffer = az_buffer_new(LINE_BUFFER_SIZE);
 	}
 	channel->connection = conn;
+        channel->timestamp = 0;
     }
     return channel;
 }
