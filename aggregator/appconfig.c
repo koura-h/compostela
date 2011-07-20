@@ -51,6 +51,8 @@ _pick_aggregate_context(yaml_parser_t* parser)
                 ret->displayName = strdup((const char*)event_value.data.scalar.value);
             } else if (strcmp((const char*)event.data.scalar.value, "rotate") == 0) {
                 ret->f_rotate = strcasecmp((const char*)event_value.data.scalar.value, "true") == 0 ? 1 : 0;
+            } else if (strcmp((const char*)event.data.scalar.value, "outputPath") == 0) {
+                ret->outputPath = strdup((const char*)event_value.data.scalar.value);
             } else if (strcmp((const char*)event.data.scalar.value, "timestamp") == 0) {
                 ret->f_timestamp = strcasecmp((const char*)event_value.data.scalar.value, "true") == 0 ? 1 : 0;
             } else if (strcmp((const char*)event.data.scalar.value, "mode") == 0) {
@@ -243,6 +245,7 @@ clean_config()
     az_list* li;
     for (li = g_config_aggregate_context_list; li; li = li->next) {
         sc_aggregate_context* cxt = li->object;
+        free(cxt->outputPath);
         free(cxt->path);
         free(cxt->displayName);
         free(cxt);

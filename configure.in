@@ -6,11 +6,13 @@ AC_INIT(compostela, 0.3, [koura-h@klab.jp])
 AM_INIT_AUTOMAKE
 AC_CONFIG_SRCDIR([common/azbuffer.c])
 AC_CONFIG_HEADER([config.h])
+AC_CONFIG_MACRO_DIR([m4])
 
 # Checks for programs.
 AC_PROG_CC
 AC_PROG_LIBTOOL
-AC_PROG_RANLIB
+# AC_PROG_RANLIB
+LT_INIT
 
 # Checks for libraries.
 AC_CHECK_LIB(cunit, CU_initialize_registry)

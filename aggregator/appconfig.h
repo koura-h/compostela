@@ -7,6 +7,7 @@
 typedef struct _sc_aggregate_context {
     char *path;
     char *displayName;
+    char *outputPath;
     //
     int f_rotate;
     int f_timestamp;

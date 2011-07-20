@@ -3,6 +3,7 @@
 #include <glob.h>
 #include <string.h>
 #include <getopt.h>
+#include <sys/param.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
