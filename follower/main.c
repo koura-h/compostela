@@ -633,7 +633,7 @@ main(int argc, char** argv)
 
     sc_follow_context *cxt = NULL;
 
-    int ret, ch;
+    int ret, ch, sl = 0;
     sc_log_message *resp;
     char *conf = NULL;
 
@@ -700,7 +700,7 @@ main(int argc, char** argv)
 #else
         do_rotate(g_connection);
 #endif
-        __run_loop_wait(loop, 1000, __do_receive);
+        __run_loop_wait(loop, 1000 * sl, __do_receive);
 
         // execution
         __exec_tasks(loop);
@@ -715,9 +715,10 @@ main(int argc, char** argv)
         wfiles = NULL;
 #else
         az_list* li;
-        int sl = 1, rc = 0;
+        int rc = 0;
         cxt = NULL;
 
+        sl = 1;
         for (li = g_context_list; li; li = li->next) {
             resp = NULL;
             cxt = li->object;
