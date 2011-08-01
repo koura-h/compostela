@@ -513,38 +513,154 @@ _init_file(sc_follow_context *cxt)
         if (buf) {
             if (psize != bufsize || memcmp(p, buf, bufsize) != 0) {
                 az_log(LOG_DEBUG, "mhash invalid!!!");
-                exit(-1);
+                cxt->__status = STE_SYNC_FAILED;
+                // exit(-1);
             } else {
                 az_log(LOG_DEBUG, "mhash check: OK");
+                cxt->__status = ST_READY;
             }
             free(buf);
         } else {
             az_log(LOG_DEBUG, "mhash not found");
+            cxt->__status = ST_READY;
         }
+    } else {
+        cxt->__status = ST_READY;
     }
     cxt->position = pos;
 
     az_log(LOG_DEBUG, "INIT: cxt->channel = %d, cxt->position = %ld", cxt->channel, cxt->position);
     lseek(cxt->_fd, cxt->position, SEEK_SET);
 
+    // here, we proceed response from aggregator
+    sc_log_message_destroy(resp);
+
+    msg->code = SCM_MSG_NONE;
     az_log(LOG_DEBUG, ">>> INIT: finished");
     return 0;
 }
 
+static int
+_reset_file(sc_follow_context* cxt)
+{
+    sc_log_message *msg, *resp;
+    az_log(LOG_DEBUG, ">>> RSET: started");
+
+    msg = sc_log_message_new(0);
+    if (!msg) {
+        return -1;
+    }
+
+    msg->code    = SCM_MSG_RSET;
+    msg->channel = cxt->channel;
+
+    // send_message
+    if (sc_aggregator_connection_send_message(cxt->connection, msg) != 0) {
+        az_log(LOG_DEBUG, "INIT: connection has broken.");
+        return -1;
+    }
+
+    if (sc_aggregator_connection_receive_message(cxt->connection, &resp) != 0) {
+        az_log(LOG_DEBUG, "INIT: connection has broken. (on receiving)");
+        return -3;
+    }
+
+    if (resp->code != SCM_RESP_OK) {
+        az_log(LOG_DEBUG, ">>> INIT: failed (code=%d)", resp->code);
+        return -4;
+    }
+
+    cxt->__status = ST_READY;
+
+    // here, we proceed response from aggregator
+    sc_log_message_destroy(resp);
+
+    msg->code = SCM_MSG_NONE;
+    az_log(LOG_DEBUG, ">>> RSET: end");
+    return 0;
+}
 
 static int
-_run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
+_run_follow_context_1(sc_follow_context* cxt)
 {
-    // sc_log_message* msg = sc_log_message_new(csize), *resp = NULL;
-    int ret = 0;
+    sc_log_message* msg = cxt->message_buffer, *resp;
     time_t t;
     int32_t attr = 0;
     size_t cb = 0, cb0 = sizeof(int32_t) + sizeof(int64_t);
+    int ret;
 
-    assert(presp != NULL);
-    *presp = NULL;
+    if (cxt->channel == 0) {
+        cxt->__status = ST_NONE;
+        return 0;
+    }
+    if (cxt->_fd <= 0) {
+        if (sc_follow_context_open_file(cxt) != 0) {
+            az_log(LOG_DEBUG, "sc_follow_context_run: not opened yet => [%s]", cxt->filename);
+            return 1;
+        }
+        // _init_file(cxt);
+        cxt->__status = ST_NONE;
+        return 0;
+    }
 
-    sc_log_message* msgbuf = cxt->message_buffer;
+    time(&t);
+
+    cb = 0;
+    ret = _sc_follow_context_read_line(cxt, msg->content + cb0, BUFSIZE - cb0, &cb);
+    if (ret == 0 && cb == 0) {
+        // EOF, wait for the new available data.
+        return 1;
+    } else if (ret == -1) {
+        if (errno == EAGAIN) {
+            // treats similar to EOF
+            return 1;
+        }
+        return -1;
+    }
+
+    attr |= (ret ? 0x80000000 : 0); // line completed?
+
+    attr = htonl(attr);
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+    t = bswap_64(t);
+#endif
+
+    memcpy(msg->content, &attr, sizeof(int32_t));
+    memcpy(msg->content + sizeof(int32_t), &t, sizeof(time_t));
+
+    assert(cxt->channel != 0);
+    az_log(LOG_DEBUG, "reading file...");
+
+    msg->code           = SCM_MSG_DATA;
+    msg->channel        = cxt->channel;
+    msg->content_length = cb0 + cb;
+
+    if (_sc_follow_context_proc_data(cxt, msg, &resp) != 0) {
+        // should reconnect
+        az_log(LOG_DEBUG, "You should reconnect now");
+        return ERR_MUST_RECONNECT;
+    }
+
+    if (resp->code != SCM_RESP_OK) {
+        // cxt->current_position = cur;
+        az_log(LOG_DEBUG, ">>> _run_follow_context_1: end (error)");
+        sc_log_message_destroy(resp);
+        return -4;
+    }
+
+    // here, we proceed response from aggregator
+    sc_log_message_destroy(resp);
+
+    msg->code = SCM_MSG_NONE;
+    az_log(LOG_DEBUG, ">>> _run_follow_context_1: end");
+    return 0;
+}
+
+static int
+_run_follow_context(sc_follow_context* cxt)
+{
+    // sc_log_message* msg = sc_log_message_new(csize), *resp = NULL;
+    int ret = 0;
 
     az_log(LOG_DEBUG, "context run");
     if (!sc_aggregator_connection_is_opened(cxt->connection)) {
@@ -553,63 +669,22 @@ _run_follow_context(sc_follow_context* cxt, sc_log_message** presp)
         return ERR_MUST_RECONNECT;
     }
 
-    if (msgbuf->code == SCM_MSG_NONE) {
-        if (cxt->_fd <= 0) {
-            if (sc_follow_context_open_file(cxt) != 0) {
-                az_log(LOG_DEBUG, "sc_follow_context_run: not opened yet => [%s]", cxt->filename);
-                return 1;
-            }
-            _init_file(cxt);
+    if (cxt->message_buffer->code == SCM_MSG_NONE) {
+        switch (cxt->__status) {
+        case ST_NONE:
+            ret = _init_file(cxt);
+        case STE_SYNC_FAILED:
+            ret = _reset_file(cxt);
+        default:
+            ret = _run_follow_context_1(cxt);
+            break;
         }
-
-        time(&t);
-
-        cb = 0;
-        ret = _sc_follow_context_read_line(cxt, msgbuf->content + cb0, BUFSIZE - cb0, &cb);
-        if (ret == 0 && cb == 0) {
-            // EOF, wait for the new available data.
-            return 1;
-        } else if (ret == -1) {
-            if (errno == EAGAIN) {
-                // treats similar to EOF
-                return 1;
-            }
-            return -1;
+        if (ret != 0) {
+            return ret;
         }
-
-        attr |= (ret ? 0x80000000 : 0); // line completed?
-
-        attr = htonl(attr);
-#if __BYTE_ORDER == __LITTLE_ENDIAN
-        t = bswap_64(t);
-#endif
-
-        memcpy(msgbuf->content, &attr, sizeof(int32_t));
-        memcpy(msgbuf->content + sizeof(int32_t), &t, sizeof(time_t));
-
-        // assert(cxt->channel != 0);
-        if (cxt->channel == 0) {
-            _init_file(cxt);
-        }
-        az_log(LOG_DEBUG, "reading file...");
-
-        msgbuf->code           = SCM_MSG_DATA;
-        msgbuf->channel        = cxt->channel;
-        msgbuf->content_length = cb0 + cb;
     }
 
-    if (_sc_follow_context_proc_data(cxt, msgbuf, presp) != 0) {
-        // should reconnect
-        az_log(LOG_DEBUG, "You should reconnect now");
-        return ERR_MUST_RECONNECT;
-    }
-
-    if ((*presp)->code == SCM_RESP_OK) {
-        // cxt->current_position = cur;
-        msgbuf->code = SCM_MSG_NONE;
-    }
-
-    return 0;
+    return ret;
 }
 
 
@@ -722,7 +797,7 @@ main(int argc, char** argv)
         for (li = g_context_list; li; li = li->next) {
             resp = NULL;
             cxt = li->object;
-            ret = _run_follow_context(cxt, &resp);
+            ret = _run_follow_context(cxt);
             if (ret > 0) {
                 if (ret == ERR_MUST_RECONNECT) {
                     rc = 1;
@@ -738,9 +813,6 @@ main(int argc, char** argv)
                 // in proceessed any bytes.
                 sl = 0;
             }
-
-            // here, we proceed response from aggregator
-            sc_log_message_destroy(resp);
         }
 
         if (rc) {

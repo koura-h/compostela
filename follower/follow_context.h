@@ -2,6 +2,12 @@
 #if !defined(__FOLLOW_CONTEXT_H__)
 #define __FOLLOW_CONTEXT_H__
 
+enum {
+   ST_NONE = 0,
+   ST_READY = 1,
+   STE_SYNC_FAILED = -10001,
+};
+
 typedef struct _sc_follow_context {
     int channel;
     //
@@ -18,6 +24,8 @@ typedef struct _sc_follow_context {
     char *displayName;
     //
     int ftimestamp;
+    //
+    int __status;
     //
     sc_aggregator_connection_ref connection;
 } sc_follow_context;

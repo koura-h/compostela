@@ -530,6 +530,26 @@ handler_rele(sc_log_message* msg, sc_connection* conn, sc_channel* channel)
 }
 
 int
+handler_rset(sc_log_message* msg, sc_connection* conn, sc_channel* channel)
+{
+    int n;
+    sc_log_message* ok = sc_log_message_new(sizeof(int32_t));
+
+    // _do_purge_file(channel->__filename_fullpath, channel->buffer, text, len);
+    unlink(channel->__filename_fullpath);
+
+    ok->code    = SCM_RESP_OK;
+    ok->channel = msg->channel;
+
+    memset(ok->content, 0, sizeof(int32_t));
+
+    n = _sc_connection_send(conn, ok);
+    sc_log_message_destroy(ok);
+
+    return 0;
+}
+
+int
 handler_seek(sc_log_message* msg, sc_connection* conn, sc_channel* channel)
 {
     int n;
@@ -608,6 +628,9 @@ do_receive(int epfd, sc_connection* conn)
 	    case SCM_MSG_RELE:
 	        handler_rele(msg, conn, channel);
 	        break;
+            case SCM_MSG_RSET:
+                handler_rset(msg, conn, channel);
+                break;
 	    }
         }
     } else if (n == 0) {
