@@ -460,7 +460,7 @@ _init_file(sc_follow_context *cxt)
     int64_t pos = 0;
     int32_t attr = 0, len = 0;
 
-    az_log(LOG_DEBUG, ">>> INIT: started");
+    az_log(LOG_DEBUG, ">>> INIT: started (cxt=%p)", cxt);
 
     msg = sc_log_message_new(n + sizeof(int32_t));
     if (!msg) {
@@ -589,18 +589,16 @@ _run_follow_context_1(sc_follow_context* cxt)
     size_t cb = 0, cb0 = sizeof(int32_t) + sizeof(int64_t);
     int ret;
 
-    if (cxt->channel == 0) {
-        cxt->__status = ST_NONE;
-        return 0;
-    }
+    assert(cxt->channel != 0);
+
     if (cxt->_fd <= 0) {
         if (sc_follow_context_open_file(cxt) != 0) {
             az_log(LOG_DEBUG, "sc_follow_context_run: not opened yet => [%s]", cxt->filename);
             return 1;
         }
         // _init_file(cxt);
-        cxt->__status = ST_NONE;
-        return 0;
+        // treats similarly as EOF.
+        return 1;
     }
 
     time(&t);

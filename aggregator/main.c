@@ -762,7 +762,7 @@ main(int argc, char** argv)
     free(conf);
 
     //
-    set_rotation_timer();
+    // set_rotation_timer();
     set_sigpipe_handler();
 
     //
