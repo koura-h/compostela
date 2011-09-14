@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <assert.h>
 #include <byteswap.h>
+#include <glob.h>
 
 #include "azlist.h"
 #include "azbuffer.h"
@@ -27,24 +28,15 @@
 /////
 
 sc_follow_context*
-_sc_follow_context_init(sc_follow_context* cxt, const char* dispname, int ftimestamp, size_t bufsize, sc_aggregator_connection_ref conn)
+_sc_follow_context_init(sc_follow_context* cxt, sc_config_channel_entry* config, size_t bufsize, sc_aggregator_connection_ref conn)
 {
     memset(cxt, 0, sizeof(sc_follow_context));
 
+    cxt->config = config;
     cxt->connection = conn;
     cxt->_fd = -1;
 
-    if (dispname) {
-        cxt->displayName = strdup(dispname);
-        if (!cxt->displayName) {
-            free(cxt->filename);
-            free(cxt);
-            return NULL;
-        }
-    }
-    // we should read control files for 'fname'
-
-    cxt->ftimestamp = ftimestamp;
+    cxt->displayName = strdup(cxt->config->name);
 
     cxt->buffer = az_buffer_new(bufsize);
     cxt->message_buffer = sc_log_message_new(bufsize);
@@ -54,41 +46,55 @@ _sc_follow_context_init(sc_follow_context* cxt, const char* dispname, int ftimes
 }
 
 sc_follow_context*
-sc_follow_context_new(const char* fname, const char* dispname, int ftimestamp, size_t bufsize, sc_aggregator_connection_ref conn)
+sc_follow_context_new(sc_config_channel_entry* config, size_t bufsize, sc_aggregator_connection_ref conn)
 {
     sc_follow_context* cxt = NULL;
 
     cxt = (sc_follow_context*)malloc(sizeof(sc_follow_context));
-    if ((cxt = _sc_follow_context_init(cxt, dispname, ftimestamp, bufsize, conn))) {
-        if (fname) {
-            cxt->filename = strdup(fname);
-	    if (!cxt->filename) {
-                sc_follow_context_destroy(cxt);
-                return NULL;
-	    }
-        }
+    if ((cxt = _sc_follow_context_init(cxt, config, bufsize, conn))) {
     }
 
     return cxt;
 }
 
+/*
 sc_follow_context*
 sc_follow_context_new_with_fd(int fd, const char* dispname, int ftimestamp, size_t bufsize, sc_aggregator_connection_ref conn)
 {
     sc_follow_context* cxt = NULL;
 
     cxt = (sc_follow_context*)malloc(sizeof(sc_follow_context));
-    if ((cxt = _sc_follow_context_init(cxt, dispname, ftimestamp, bufsize, conn))) {
+    if ((cxt = _sc_follow_context_init(cxt, config, bufsize, conn))) {
         cxt->_fd = fd;
     }
 
     return cxt;
+}
+*/
+
+
+static char*
+__pickup_first_file(sc_follow_context* cxt)
+{
+    char *fname = NULL;
+    glob_t globbuf;
+    int i;
+
+    glob(cxt->config->path, 0, NULL, &globbuf);
+    for (i = 0; i < globbuf.gl_pathc; i++) {
+        fname = strdup(globbuf.gl_pathv[i]);
+        break;
+    }
+    globfree(&globbuf);
+
+    return fname;
 }
 
 int
 sc_follow_context_open_file(sc_follow_context* cxt)
 {
     struct stat st;
+    char *fname;
     // int flags;
 
     if (cxt->_fd != -1) {
@@ -96,8 +102,16 @@ sc_follow_context_open_file(sc_follow_context* cxt)
         return -1;
     }
 
-    cxt->_fd = open(cxt->filename, O_RDONLY | O_NONBLOCK);
+    fname = __pickup_first_file(cxt);
+    if (!fname) {
+        az_log(LOG_DEBUG, "no files picked up.");
+        return -1;
+    }
+    az_log(LOG_DEBUG, "fname = %s", fname);
+
+    cxt->_fd = open(fname, O_RDONLY | O_NONBLOCK);
     if (cxt->_fd < 0) {
+        free(fname);
         az_log(LOG_DEBUG, ">>> %s: error (%d)", __FUNCTION__, errno);
         return -1;
     }
@@ -105,6 +119,7 @@ sc_follow_context_open_file(sc_follow_context* cxt)
     fstat(cxt->_fd, &st);
     // cxt->filesize = st.st_size;
     cxt->mode     = st.st_mode;
+    cxt->filename = fname;
 
     return 0;
 }

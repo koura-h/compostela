@@ -16,7 +16,6 @@
 #include <getopt.h>
 #include <fnmatch.h>
 #include <time.h>
-
 #include <byteswap.h>
 
 #include "message.h"
@@ -90,10 +89,11 @@ sc_channel_new(const char* fname, sc_connection* conn)
 {
     sc_channel* channel = (sc_channel*)malloc(sizeof(sc_channel));
     if (channel) {
+        memset(channel, 0, sizeof(sc_channel));
         if (fname) {
 	    channel->filename = strdup(fname);
-	    channel->__filename_fullpath = pathcat(g_config_server_logdir, conn->remote_addr, fname, NULL);
-	    az_log(LOG_DEBUG, "__filename_fullpath = %s", channel->__filename_fullpath);
+	    // channel->__filename_fullpath = pathcat(g_config_server_logdir, conn->remote_addr, fname, NULL);
+	    // az_log(LOG_DEBUG, "__filename_fullpath = %s", channel->__filename_fullpath);
             channel->buffer = az_buffer_new(LINE_BUFFER_SIZE);
 	}
 	channel->connection = conn;
@@ -107,7 +107,9 @@ sc_channel_destroy(sc_channel* channel)
 {
     az_log(LOG_DEBUG, ">>> %s", __func__);
     az_buffer_destroy(channel->buffer);
-    free(channel->__filename_fullpath);
+    if (channel->__filename_fullpath) {
+        free(channel->__filename_fullpath);
+    }
     free(channel->filename);
     free(channel);
     az_log(LOG_DEBUG, "<<< %s", __func__);
@@ -171,6 +173,7 @@ sc_connection_destroy(sc_connection* conn)
         sc_channel_destroy(li->object);
     }
     az_list_delete_all(conn->channel_list);
+    conn->channel_list = NULL;
 
     az_log(LOG_DEBUG, "<<< %s", __func__);
 
@@ -270,7 +273,7 @@ _create_dir(const char* fpath, mode_t mode)
 
 
 int
-_do_merge_file(const char* host, const char* path, time_t ts, az_buffer_ref buffer, const char *data, size_t len, sc_aggregate_context* aggr)
+_do_merge_file(const char* host, const char* path, time_t ts, az_buffer_ref buffer, const char *data, size_t len, sc_aggregate_context* aggr, int _do_fsync)
 {
     int fd, cb0 = 0;
     char tsbuf[32];
@@ -309,17 +312,21 @@ _do_merge_file(const char* host, const char* path, time_t ts, az_buffer_ref buff
     }
     n = write(fd, data, len);
     // 'n': check here
+    if (_do_fsync) {
+        fsync(fd);
+    }
     close(fd);
 
     return 0;
 }
 
 int
-_do_append_file(const char* path, az_buffer_ref buffer, const char *data, size_t len)
+_do_append_file(sc_channel* channel, az_buffer_ref buffer, const char *data, size_t len, int _do_fsync)
 {
     int fd, n;
     char dir[PATH_MAX];
     size_t u;
+    char *path = pathcat(g_config_server_logdir, channel->connection->remote_addr, channel->filename, NULL);
 
     strcpy(dir, path);
     az_log(LOG_DEBUG, "appending to ... [%s]", path);
@@ -329,6 +336,7 @@ _do_append_file(const char* path, az_buffer_ref buffer, const char *data, size_t
     fd = open(path, O_APPEND | O_RDWR | O_CREAT, g_config_default_mode);
     if (fd == -1) {
         perror("open");
+        free(path);
 	return -1;
     }
     if ((u = az_buffer_unread_bytes(buffer)) > 0) {
@@ -337,8 +345,12 @@ _do_append_file(const char* path, az_buffer_ref buffer, const char *data, size_t
         az_buffer_reset(buffer);
     }
     n = write(fd, data, len);
+    if (_do_fsync) {
+        fsync(fd);
+    }
     close(fd);
 
+    free(path);
     return 0;
 }
 
@@ -405,40 +417,39 @@ int
 handler_init(sc_log_message* msg, sc_connection* conn)
 {
     int64_t stlen = 0;
-    int32_t slen = msg->content_length - sizeof(int32_t);
 
     unsigned char *mhash = NULL;
     size_t mhash_size = 0;
     struct stat st;
-    char* p;
-    int32_t attr = 0;
+    scm_init_header hdr;
 
     sc_log_message* ok = NULL;
     sc_channel* channel = NULL;
 
-    p = malloc(slen + 1);
-    attr = ntohl(*(int32_t*)msg->content);
-    memcpy(p, msg->content + sizeof(int32_t), slen);
-    p[slen] = '\0';
+    _unpack_init_header(msg, &hdr);
 
-    channel = sc_channel_new(p, conn);
+    channel = sc_channel_new(hdr.text, conn);
     sc_connection_register_channel(conn, channel);
+    free(hdr.text);
 
-    channel->aggregate_context = __find_aggregate_context(channel->__filename_fullpath);
+    // channel->aggregate_context = __find_aggregate_context(channel->__filename_fullpath);
+    channel->aggregate_context = __find_aggregate_context(channel->filename);
 
-    memset(&st, 0, sizeof(st));
-    if (stat(channel->__filename_fullpath, &st) == 0) {
-        stlen = st.st_size;
+    if (channel->__filename_fullpath) {
+        memset(&st, 0, sizeof(st));
+        if (stat(channel->__filename_fullpath, &st) == 0) {
+            stlen = st.st_size;
+        }
+        az_log(LOG_DEBUG, "channel->filename = %s, position = %ld", channel->filename, stlen);
+        az_log(LOG_DEBUG, "conn->remote_addr = %s", conn->remote_addr);
+
+        if (hdr.attributes & 0x80000000) {
+            mhash_with_size(channel->__filename_fullpath, st.st_size, &mhash, &mhash_size);
+	    dump_mhash(mhash, mhash_size);
+        }
     }
-    az_log(LOG_DEBUG, "channel->filename = %s, position = %ld", channel->filename, stlen);
-    az_log(LOG_DEBUG, "conn->remote_addr = %s", conn->remote_addr);
 
-    if (attr & 0x80000000) {
-        mhash_with_size(channel->__filename_fullpath, st.st_size, &mhash, &mhash_size);
-	dump_mhash(mhash, mhash_size);
-    }
-
-    ok = sc_log_message_new(sizeof(int64_t) + mhash_size);
+    ok = sc_log_message_new(sizeof(int64_t) + (mhash ? mhash_size : 0));
     // haha
     ok->code    = SCM_RESP_OK;
     ok->channel = channel->id;
@@ -459,50 +470,69 @@ handler_init(sc_log_message* msg, sc_connection* conn)
 }
 
 int
+_write_meta_info(scm_data_header *hdr)
+{
+    //
+    
+    return 0;
+}
+
+int
 handler_data(sc_log_message* msg, sc_connection* conn, sc_channel* channel)
 {
     int n;
-    time_t t;
-    int32_t attr;
-    const char *text;
-    size_t len;
     sc_aggregate_context* aggr = channel->aggregate_context;
+    scm_data_header hdr;
 
     az_log(LOG_DEBUG, ">>> handler_data (channel_id = %d)", msg->channel);
     if (aggr) {
         az_log(LOG_DEBUG, ">>> aggr.f_separate = %d, aggr.f_merge = %d", aggr->f_separate, aggr->f_merge);
     }
 
-    attr = ntohl(*(int32_t*)msg->content);
-    t = *(time_t*)(msg->content + sizeof(int32_t));
-#if __BYTE_ORDER == __LITTLE_ENDIAN
-    t = bswap_64(t);
-#endif
-    text = msg->content + sizeof(int32_t) + sizeof(time_t);
-    len = msg->content_length - (sizeof(int32_t) + sizeof(time_t));
-    az_log(LOG_DEBUG, ">>> attr = %d", attr);
+    _unpack_data_header(msg, &hdr);
+    az_log(LOG_DEBUG, ">>> pos = %ld, text = %s, len = %d", hdr.position, hdr.text, hdr.length);
 
-    if (!(attr & 0x80000000)) {
-        if (az_buffer_unused_bytes(channel->buffer) < len) {
-            az_buffer_resize(channel->buffer, len + az_buffer_size(channel->buffer));
+#if 1
+    // NOTICE: for error
+    if ((random() % 16) != 0) {
+        // NG
+        sc_log_message* ng = sc_log_message_new(0);
+        ng->code    = SCM_RESP_NG;
+        ng->channel = msg->channel;
+
+        n = _sc_connection_send(conn, ng);
+        sc_log_message_destroy(ng);
+        return 0;
+    }
+#endif
+
+    // _sync_header_info(&hdr);
+
+    if (!(hdr.attributes & 0x80000000)) {
+        if (az_buffer_unused_bytes(channel->buffer) < hdr.length) {
+            az_buffer_resize(channel->buffer, hdr.length + az_buffer_size(channel->buffer));
         }
-        assert(az_buffer_unused_bytes(channel->buffer) >= len);
-        az_buffer_fetch_bytes(channel->buffer, text, len);
+        assert(az_buffer_unused_bytes(channel->buffer) >= hdr.length);
+        az_buffer_fetch_bytes(channel->buffer, hdr.text, hdr.length);
     } else {
         if (!aggr || aggr->f_merge) {
-            _do_merge_file(conn->remote_addr, channel->filename, t, channel->buffer, text, len, aggr);
+            _do_merge_file(conn->remote_addr, channel->filename, hdr.timestamp, channel->buffer, hdr.text, hdr.length, aggr, 1);
         }
         if (!aggr || aggr->f_separate) {
-            _do_append_file(channel->__filename_fullpath, channel->buffer, text, len);
+            _do_append_file(channel, channel->buffer, hdr.text, hdr.length, 1);
         }
     }
 
-    sc_log_message* ok = sc_log_message_new(sizeof(int32_t));
+    sc_log_message* ok = sc_log_message_new(sizeof(int32_t) + sizeof(int64_t));
+    char *p = ok->content;
+    size_t pos = 0;
 
     ok->code    = SCM_RESP_OK;
     ok->channel = msg->channel;
 
-    memset(ok->content, 0, sizeof(int32_t));
+    memset(ok->content, 0, sizeof(int32_t) + sizeof(int64_t));
+    *(int32_t*)p = htonl(0); p += sizeof(int32_t);
+    *(int64_t*)p = htonl(pos); p += sizeof(int64_t);
 
     n = _sc_connection_send(conn, ok);
     sc_log_message_destroy(ok);
@@ -536,7 +566,11 @@ handler_rset(sc_log_message* msg, sc_connection* conn, sc_channel* channel)
     sc_log_message* ok = sc_log_message_new(sizeof(int32_t));
 
     // _do_purge_file(channel->__filename_fullpath, channel->buffer, text, len);
-    unlink(channel->__filename_fullpath);
+    if (channel->__filename_fullpath) {
+        unlink(channel->__filename_fullpath);
+    } else {
+        az_log(LOG_DEBUG, "We should not use RSET command without fixed-path mode.");
+    }
 
     ok->code    = SCM_RESP_OK;
     ok->channel = msg->channel;
@@ -566,7 +600,11 @@ handler_seek(sc_log_message* msg, sc_connection* conn, sc_channel* channel)
 #endif
 
     sc_log_message* ok = sc_log_message_new(sizeof(int32_t));
-    _do_trunc_file(channel->__filename_fullpath, pos);
+    if (channel->__filename_fullpath) {
+        _do_trunc_file(channel->__filename_fullpath, pos);
+    } else {
+        az_log(LOG_DEBUG, "We should not use SEEK command without fixed-path mode.");
+    }
 
     // haha
     ok->code    = SCM_RESP_OK;
@@ -760,6 +798,8 @@ main(int argc, char** argv)
 
     load_config_file((conf ? conf : DEFAULT_CONF));
     free(conf);
+
+    srandom(time(NULL));
 
     //
     // set_rotation_timer();

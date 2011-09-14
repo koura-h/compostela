@@ -30,6 +30,11 @@
 #include "config.h"
 
 
+typedef struct _sc_channel {
+    int channel_id;
+} sc_channel;
+
+
 
 enum { ERR_MUST_RECONNECT = 1001 };
 
@@ -42,7 +47,8 @@ az_list* g_context_list = NULL;
 const char *DEFAULT_CONF = PATH_SYSCONFDIR "/comfollower.conf";
 #define PATH_CONTROL "/tmp/comfollower.sock"
 
-static int do_rotate(sc_aggregator_connection_ref conn);
+static int do_rotate(sc_config_channel_entry* pe, struct tm *tm, sc_aggregator_connection_ref conn);
+static int do_rotate_all(sc_aggregator_connection_ref conn);
 
 int
 setup_server_unix_socket(const char* path)
@@ -467,9 +473,11 @@ _init_file(sc_follow_context *cxt)
         return -1;
     }
 
+/*
     if (S_ISREG(cxt->mode) && !cxt->ftimestamp) {
         attr |= 0x80000000;
     }
+*/
 
     msg->code    = SCM_MSG_INIT;
     msg->channel = 0;
@@ -581,12 +589,13 @@ _reset_file(sc_follow_context* cxt)
 }
 
 static int
-_run_follow_context_1(sc_follow_context* cxt)
+_run_follow_context_m(sc_follow_context* cxt)
 {
     sc_log_message* msg = cxt->message_buffer, *resp;
     time_t t;
     int32_t attr = 0;
-    size_t cb = 0, cb0 = sizeof(int32_t) + sizeof(int64_t);
+    size_t cb = 0, cb0 = 0;
+    size_t pos;
     int ret;
 
     assert(cxt->channel != 0);
@@ -596,14 +605,104 @@ _run_follow_context_1(sc_follow_context* cxt)
             az_log(LOG_DEBUG, "sc_follow_context_run: not opened yet => [%s]", cxt->filename);
             return 1;
         }
-        // _init_file(cxt);
-        // treats similarly as EOF.
         return 1;
     }
 
     time(&t);
 
+    pos = lseek(cxt->_fd, 0, SEEK_CUR);
+
     cb = 0;
+    cb0 = sizeof(int32_t) + sizeof(int64_t) + sizeof(int64_t);
+    ret = _sc_follow_context_read_line(cxt, msg->content + cb0, BUFSIZE - cb0, &cb);
+    if (ret == 0 && cb == 0) {
+        // EOF
+        msg->code = SCM_MSG_NONE;
+
+        close(cxt->_fd);
+        cxt->_fd = -1;
+        //
+        az_log(LOG_DEBUG, "unlink(\"%s\");", cxt->filename); unlink(cxt->filename);
+        free(cxt->filename); cxt->filename = NULL;
+        //
+        cxt->mode = 0;
+        cxt->position = 0;
+
+        return 1;
+    } else if (ret == -1) {
+        if (errno == EAGAIN) {
+            // treats similar to EOF
+            return 1;
+        }
+        return -1;
+    }
+
+    attr |= (ret ? 0x80000000 : 0); // line completed?
+
+    attr = htonl(attr);
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+    t = bswap_64(t);
+    pos = bswap_64(pos);
+#endif
+
+    memcpy(msg->content, &attr, sizeof(int32_t));
+    memcpy(msg->content + sizeof(int32_t), &t, sizeof(time_t));
+    memcpy(msg->content + sizeof(int32_t) + sizeof(int64_t), &pos, sizeof(size_t));
+
+    assert(cxt->channel != 0);
+    az_log(LOG_DEBUG, "reading file...");
+
+    msg->code           = SCM_MSG_DATA;
+    msg->channel        = cxt->channel;
+    msg->content_length = cb0 + cb;
+
+    if (_sc_follow_context_proc_data(cxt, msg, &resp) != 0) {
+        // should reconnect
+        az_log(LOG_DEBUG, "You should reconnect now");
+        return ERR_MUST_RECONNECT;
+    }
+
+    if (resp->code != SCM_RESP_OK) {
+        // cxt->current_position = cur;
+        az_log(LOG_DEBUG, ">>> _run_follow_context_m: end (error)");
+        sc_log_message_destroy(resp);
+        return 444;
+    }
+
+    // here, we proceed response from aggregator
+    sc_log_message_destroy(resp);
+
+    msg->code = SCM_MSG_NONE;
+    az_log(LOG_DEBUG, ">>> _run_follow_context_m: end");
+    return 0;
+}
+
+static int
+_run_follow_context_1(sc_follow_context* cxt)
+{
+    sc_log_message* msg = cxt->message_buffer, *resp;
+    time_t t;
+    int32_t attr = 0;
+    size_t cb = 0, cb0 = 0;
+    size_t pos;
+    int ret;
+
+    assert(cxt->channel != 0);
+
+    if (cxt->_fd <= 0) {
+        if (sc_follow_context_open_file(cxt) != 0) {
+            az_log(LOG_DEBUG, "sc_follow_context_run: not opened yet => [%s]", cxt->filename);
+            return 1;
+        }
+        return 1;
+    }
+
+    time(&t);
+
+    pos = lseek(cxt->_fd, 0, SEEK_CUR);
+
+    cb = 0;
+    cb0 = sizeof(int32_t) + sizeof(int64_t) + sizeof(int64_t);
     ret = _sc_follow_context_read_line(cxt, msg->content + cb0, BUFSIZE - cb0, &cb);
     if (ret == 0 && cb == 0) {
         // EOF, wait for the new available data.
@@ -621,10 +720,12 @@ _run_follow_context_1(sc_follow_context* cxt)
     attr = htonl(attr);
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     t = bswap_64(t);
+    pos = bswap_64(pos);
 #endif
 
     memcpy(msg->content, &attr, sizeof(int32_t));
     memcpy(msg->content + sizeof(int32_t), &t, sizeof(time_t));
+    memcpy(msg->content + sizeof(int32_t) + sizeof(int64_t), &pos, sizeof(size_t));
 
     assert(cxt->channel != 0);
     az_log(LOG_DEBUG, "reading file...");
@@ -655,6 +756,13 @@ _run_follow_context_1(sc_follow_context* cxt)
 }
 
 static int
+__do_rotate(sc_follow_context* cxt)
+{
+    az_log(LOG_DEBUG, "cxt=%p: __do_rotate", cxt);
+    return 1;
+}
+
+static int
 _run_follow_context(sc_follow_context* cxt)
 {
     // sc_log_message* msg = sc_log_message_new(csize), *resp = NULL;
@@ -671,15 +779,24 @@ _run_follow_context(sc_follow_context* cxt)
         switch (cxt->__status) {
         case ST_NONE:
             ret = _init_file(cxt);
+            break;
         case STE_SYNC_FAILED:
             ret = _reset_file(cxt);
+            break;
         default:
+#if 0
             ret = _run_follow_context_1(cxt);
+#else
+            ret = _run_follow_context_m(cxt);
+#endif
             break;
         }
         if (ret != 0) {
             return ret;
         }
+    } else {
+        az_log(LOG_DEBUG, ">>> retransmit!");
+        return 1;
     }
 
     return ret;
@@ -687,6 +804,18 @@ _run_follow_context(sc_follow_context* cxt)
 
 
 static sc_aggregator_connection_ref g_connection = NULL;
+
+
+static int
+do_iter_all(az_list* context_list)
+{
+    az_list* li;
+    for (li = context_list; li; li = li->next) {
+        sc_follow_context* cxt = (sc_follow_context*)li->object;
+        az_log(LOG_DEBUG, "context = %p", cxt);
+    }
+    return 0;
+}
 
 
 
@@ -755,7 +884,8 @@ main(int argc, char** argv)
     g_conn_controller = setup_server_unix_socket(g_config_control_path ? g_config_control_path : PATH_CONTROL);
 #endif
 
-    do_rotate(g_connection);
+    // do_rotate_all(g_connection);
+    __startup_channels(g_connection);
     set_sigpipe_handler();
 
     loop = __run_loop_new(1);
@@ -771,7 +901,7 @@ main(int argc, char** argv)
         __eval_filewatch(wfiles0, wfiles);
         __diff_filewatch(wfiles0, wfiles, cxt);
 #else
-        do_rotate(g_connection);
+        // do_rotate_all(g_connection);
 #endif
         __run_loop_wait(loop, 1000 * sl, __do_receive);
 
@@ -825,62 +955,18 @@ main(int argc, char** argv)
     }
 }
 
-
 int
-do_rotate(sc_aggregator_connection_ref conn)
+__startup_channels(sc_aggregator_connection_ref conn)
 {
-    sc_config_pattern_entry *pe;
-    struct tm tm;
-    time_t t;
+    az_list *li;
     sc_follow_context* cxt = NULL;
-    int not_found;
-    az_list *li, *lp;
 
-    time(&t);
-    localtime_r(&t, &tm);
-    for (lp = g_config_patterns; lp; lp = lp->next) {
-        pe = (sc_config_pattern_entry*)lp->object;
-        char fn[PATH_MAX], dn[PATH_MAX];
+    for (li = g_config_channels; li; li = li->next) {
+        sc_config_channel_entry *pe = (sc_config_channel_entry*)li->object;
+    
+        cxt = sc_follow_context_new(pe, BUFSIZE, conn);
 
-        if (pe->rotate && strchr(pe->path, '%')) {
-            strftime(fn, sizeof(fn), pe->path, &tm);
-        } else {
-            strncpy(fn, pe->path, sizeof(fn));
-        }
-
-        if (pe->displayName) {
-            if (pe->rotate && strchr(pe->displayName, '%')) {
-                strftime(dn, sizeof(dn), pe->displayName, &tm);
-            } else {
-                strncpy(dn, pe->displayName, sizeof(dn));
-            }
-        } else {
-            strcpy(dn, basename(fn));
-        }
-        az_log(LOG_DEBUG, "fname = [%s] / dispname = [%s]", fn, dn);
-
-        not_found = 1;
-        for (li = g_context_list; not_found && li; li = li->next) {
-            cxt = li->object;
-            if (cxt->filename && strcmp(cxt->filename, fn) == 0) {
-                if (strcmp(cxt->displayName, dn) == 0) {
-                    // , I'm already following it.
-                    not_found = 0;
-                } else {
-                    // displayName has rotated.
-                    sc_follow_context_close(cxt);
-                }
-                az_log(LOG_DEBUG, "=== already following now.", fn, dn);
-                break;
-            }
-        }
-
-        if (not_found) {
-            cxt = sc_follow_context_new(fn, dn, pe->append_timestamp, BUFSIZE, conn);
-            g_context_list = az_list_add(g_context_list, cxt);
-            az_log(LOG_DEBUG, "added: new follow_context");
-        }
+        g_context_list = az_list_add(g_context_list, cxt);
+        az_log(LOG_DEBUG, "added: new follow_context");
     }
-
-    return 0;
 }

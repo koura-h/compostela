@@ -34,6 +34,21 @@ typedef struct _scm_command_pos {
     int64_t filesize;
 } scm_command_pos;
 
+typedef struct _scm_data_header {
+    int32_t attributes;
+    int64_t position;
+    int64_t timestamp;
+    int64_t length;
+    //
+    char* text;
+} scm_data_header;
+
+typedef struct _scm_init_header {
+    int32_t attributes;
+    //
+    char* text;
+} scm_init_header;
+
 #if defined(__cplusplus)
 extern "C" {
 #endif
@@ -43,6 +58,13 @@ sc_log_message* sc_log_message_new(ssize_t content_size);
 void sc_log_message_destroy(sc_log_message* msg);
 
 sc_log_message* sc_log_message_resize(sc_log_message* msg, ssize_t newsize);
+
+
+/////
+
+int _unpack_init_header(sc_log_message* msg, scm_init_header* hdr);
+int _unpack_data_header(sc_log_message* msg, scm_data_header* data);
+
 
 #if defined(__cplusplus)
 }

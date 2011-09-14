@@ -21,6 +21,9 @@
    */
 #undef HAVE_ALLOCA_H
 
+/* Define to 1 if you have the <arpa/inet.h> header file. */
+#undef HAVE_ARPA_INET_H
+
 /* Define to 1 if you have the `btowc' function. */
 #undef HAVE_BTOWC
 
@@ -43,9 +46,6 @@
 
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
-
-/* Define to 1 if you have the `cunit' library (-lcunit). */
-#undef HAVE_LIBCUNIT
 
 /* Define to 1 if you have the `ssl' library (-lssl). */
 #undef HAVE_LIBSSL
@@ -155,6 +155,9 @@
    */
 #undef HAVE_SYS_NDIR_H
 
+/* Define to 1 if you have the <sys/param.h> header file. */
+#undef HAVE_SYS_PARAM_H
+
 /* Define to 1 if you have the <sys/socket.h> header file. */
 #undef HAVE_SYS_SOCKET_H
 
@@ -210,6 +213,9 @@
 
 /* Define to the version of this package. */
 #undef PACKAGE_VERSION
+
+/* sysconfdir */
+#undef PATH_LOCALSTATEDIR
 
 /* sysconfdir */
 #undef PATH_SYSCONFDIR
